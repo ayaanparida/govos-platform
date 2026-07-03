@@ -17,7 +17,7 @@ public class Organization extends AuditableEntity {
     @Column(name = "short_name", length = 50)
     private String shortName;
 
-    @Column(name = "type", length = 50)
+    @Column(name = "type", length = 100)
     private String type;
 
     @Column(name = "registration_number", length = 100)

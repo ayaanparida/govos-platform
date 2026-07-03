@@ -1,6 +1,5 @@
 package com.govos.org.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
@@ -19,8 +18,6 @@ public record CreateEmployeeRequest(
         UUID officeId,
         @NotNull
         UUID designationId,
-        @NotBlank @Size(max = 50)
-        String employeeNumber,
         LocalDate joiningDate,
         LocalDate retirementDate,
         @Size(max = 255)

@@ -41,6 +41,7 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final DesignationRepository designationRepository;
     private final EmployeeMapper employeeMapper;
     private final EmployeeValidator employeeValidator;
+    private final EmployeeNumberGenerator employeeNumberGenerator;
 
     public EmployeeServiceImpl(
             EmployeeRepository employeeRepository,
@@ -50,7 +51,8 @@ public class EmployeeServiceImpl implements EmployeeService {
             OfficeRepository officeRepository,
             DesignationRepository designationRepository,
             EmployeeMapper employeeMapper,
-            EmployeeValidator employeeValidator) {
+            EmployeeValidator employeeValidator,
+            EmployeeNumberGenerator employeeNumberGenerator) {
         this.employeeRepository = employeeRepository;
         this.userRepository = userRepository;
         this.organizationRepository = organizationRepository;
@@ -59,6 +61,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         this.designationRepository = designationRepository;
         this.employeeMapper = employeeMapper;
         this.employeeValidator = employeeValidator;
+        this.employeeNumberGenerator = employeeNumberGenerator;
     }
 
     @Override
@@ -89,12 +92,10 @@ public class EmployeeServiceImpl implements EmployeeService {
     @Override
     @Transactional
     public EmployeeDto create(CreateEmployeeRequest request) {
-        employeeValidator.validateCreate(request);
-
         Employee entity = buildEmployee(request.userId(), request.organizationId(), request.departmentId(),
                 request.officeId(), request.designationId());
         entity.setCode(request.code());
-        entity.setEmployeeNumber(request.employeeNumber());
+        entity.setEmployeeNumber(employeeNumberGenerator.generateNext());
         entity.setJoiningDate(request.joiningDate());
         entity.setRetirementDate(request.retirementDate());
         entity.setOfficialEmail(request.officialEmail());
@@ -115,7 +116,6 @@ public class EmployeeServiceImpl implements EmployeeService {
         applyReferences(entity, request.userId(), request.organizationId(), request.departmentId(),
                 request.officeId(), request.designationId());
         entity.setCode(request.code());
-        entity.setEmployeeNumber(request.employeeNumber());
         entity.setJoiningDate(request.joiningDate());
         entity.setRetirementDate(request.retirementDate());
         entity.setOfficialEmail(request.officialEmail());

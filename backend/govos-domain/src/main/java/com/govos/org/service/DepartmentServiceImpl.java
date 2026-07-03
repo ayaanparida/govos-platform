@@ -10,6 +10,7 @@ import com.govos.org.exception.OrganizationNotFoundException;
 import com.govos.org.mapper.DepartmentMapper;
 import com.govos.org.repository.DepartmentRepository;
 import com.govos.org.repository.OrganizationRepository;
+import com.govos.org.validator.DepartmentTreeValidator;
 import com.govos.org.validator.DepartmentValidator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,16 +26,19 @@ public class DepartmentServiceImpl implements DepartmentService {
     private final OrganizationRepository organizationRepository;
     private final DepartmentMapper departmentMapper;
     private final DepartmentValidator departmentValidator;
+    private final DepartmentTreeValidator departmentTreeValidator;
 
     public DepartmentServiceImpl(
             DepartmentRepository departmentRepository,
             OrganizationRepository organizationRepository,
             DepartmentMapper departmentMapper,
-            DepartmentValidator departmentValidator) {
+            DepartmentValidator departmentValidator,
+            DepartmentTreeValidator departmentTreeValidator) {
         this.departmentRepository = departmentRepository;
         this.organizationRepository = organizationRepository;
         this.departmentMapper = departmentMapper;
         this.departmentValidator = departmentValidator;
+        this.departmentTreeValidator = departmentTreeValidator;
     }
 
     @Override
@@ -73,7 +77,9 @@ public class DepartmentServiceImpl implements DepartmentService {
         entity.setDeleted(false);
 
         if (request.parentDepartmentId() != null) {
-            entity.setParentDepartment(findActiveById(request.parentDepartmentId()));
+            Department parent = findActiveById(request.parentDepartmentId());
+            departmentTreeValidator.validateParentAssignment(entity, parent);
+            entity.setParentDepartment(parent);
         }
 
         return departmentMapper.toDto(departmentRepository.save(entity));
@@ -97,7 +103,7 @@ public class DepartmentServiceImpl implements DepartmentService {
             entity.setActive(request.active());
         }
         entity.setParentDepartment(request.parentDepartmentId() != null
-                ? findActiveById(request.parentDepartmentId())
+                ? resolveParent(entity, request.parentDepartmentId())
                 : null);
 
         return departmentMapper.toDto(departmentRepository.save(entity));
@@ -110,6 +116,12 @@ public class DepartmentServiceImpl implements DepartmentService {
         entity.setDeleted(true);
         entity.setActive(false);
         departmentRepository.save(entity);
+    }
+
+    private Department resolveParent(Department child, UUID parentDepartmentId) {
+        Department parent = findActiveById(parentDepartmentId);
+        departmentTreeValidator.validateParentAssignment(child, parent);
+        return parent;
     }
 
     private Department findActiveById(UUID id) {

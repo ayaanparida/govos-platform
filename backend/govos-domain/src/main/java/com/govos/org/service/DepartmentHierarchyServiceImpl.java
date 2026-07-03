@@ -7,10 +7,10 @@ import com.govos.org.entity.DepartmentHierarchy;
 import com.govos.org.exception.DepartmentHierarchyNotFoundException;
 import com.govos.org.exception.DepartmentNotFoundException;
 import com.govos.org.exception.DuplicateAssignmentException;
-import com.govos.org.exception.InvalidHierarchyException;
 import com.govos.org.mapper.DepartmentHierarchyMapper;
 import com.govos.org.repository.DepartmentHierarchyRepository;
 import com.govos.org.repository.DepartmentRepository;
+import com.govos.org.validator.DepartmentTreeValidator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,14 +24,17 @@ public class DepartmentHierarchyServiceImpl implements DepartmentHierarchyServic
     private final DepartmentHierarchyRepository departmentHierarchyRepository;
     private final DepartmentRepository departmentRepository;
     private final DepartmentHierarchyMapper departmentHierarchyMapper;
+    private final DepartmentTreeValidator departmentTreeValidator;
 
     public DepartmentHierarchyServiceImpl(
             DepartmentHierarchyRepository departmentHierarchyRepository,
             DepartmentRepository departmentRepository,
-            DepartmentHierarchyMapper departmentHierarchyMapper) {
+            DepartmentHierarchyMapper departmentHierarchyMapper,
+            DepartmentTreeValidator departmentTreeValidator) {
         this.departmentHierarchyRepository = departmentHierarchyRepository;
         this.departmentRepository = departmentRepository;
         this.departmentHierarchyMapper = departmentHierarchyMapper;
+        this.departmentTreeValidator = departmentTreeValidator;
     }
 
     @Override
@@ -56,10 +59,6 @@ public class DepartmentHierarchyServiceImpl implements DepartmentHierarchyServic
     @Override
     @Transactional
     public DepartmentHierarchyDto create(CreateDepartmentHierarchyRequest request) {
-        if (request.parentDepartmentId().equals(request.childDepartmentId())) {
-            throw new InvalidHierarchyException("Parent and child department cannot be the same");
-        }
-
         if (departmentHierarchyRepository.existsByParentDepartment_IdAndChildDepartment_IdAndDeletedFalse(
                 request.parentDepartmentId(), request.childDepartmentId())) {
             throw new DuplicateAssignmentException(
@@ -71,6 +70,8 @@ public class DepartmentHierarchyServiceImpl implements DepartmentHierarchyServic
                 .orElseThrow(() -> new DepartmentNotFoundException(request.parentDepartmentId()));
         Department child = departmentRepository.findByIdAndDeletedFalse(request.childDepartmentId())
                 .orElseThrow(() -> new DepartmentNotFoundException(request.childDepartmentId()));
+
+        departmentTreeValidator.validateHierarchyEdge(parent, child);
 
         DepartmentHierarchy entity = new DepartmentHierarchy();
         entity.setParentDepartment(parent);
