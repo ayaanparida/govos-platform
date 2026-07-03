@@ -1,0 +1,161 @@
+name: govos
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 — Primary relational database (ADR-005)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: govos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-govos}
+      POSTGRES_USER: ${POSTGRES_USER:-govos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-govos_dev_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - govos-postgres-data:/var/lib/postgresql/data
+    networks:
+      - govos-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-govos} -d ${POSTGRES_DB:-govos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # pgAdmin — PostgreSQL administration UI (local development only)
+  # ---------------------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: govos-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@govos.dev}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-govos_dev_password}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - govos-pgadmin-data:/var/lib/pgadmin
+    networks:
+      - govos-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:80/misc/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Redis — Caching, session store, refresh token blacklist
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: govos-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - govos-redis-data:/data
+    networks:
+      - govos-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # MinIO — S3-compatible object storage (documents, attachments)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: govos-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-govos_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-govos_dev_password}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - govos-minio-data:/data
+    networks:
+      - govos-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # OpenSearch — Full-text search and analytics (single-node, local dev)
+  # ---------------------------------------------------------------------------
+  opensearch:
+    image: opensearchproject/opensearch:2.19.1
+    container_name: govos-opensearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      cluster.name: govos-cluster
+      node.name: govos-opensearch-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "${OPENSEARCH_PORT:-9200}:9200"
+      - "${OPENSEARCH_PERF_PORT:-9600}:9600"
+    volumes:
+      - govos-opensearch-data:/usr/share/opensearch/data
+    networks:
+      - govos-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  govos-network:
+    name: govos-network
+    driver: bridge
+
+# =============================================================================
+# Persistent Volumes
+# =============================================================================
+volumes:
+  govos-postgres-data:
+    name: govos-postgres-data
+  govos-pgadmin-data:
+    name: govos-pgadmin-data
+  govos-redis-data:
+    name: govos-redis-data
+  govos-minio-data:
+    name: govos-minio-data
+  govos-opensearch-data:
+    name: govos-opensearch-data
