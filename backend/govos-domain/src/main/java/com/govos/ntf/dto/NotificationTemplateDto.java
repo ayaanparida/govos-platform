@@ -1,6 +1,7 @@
 package com.govos.ntf.dto;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public record NotificationTemplateDto(
@@ -10,6 +11,7 @@ public record NotificationTemplateDto(
         UUID channelId,
         String subjectTemplate,
         String bodyTemplate,
+        List<String> templateVariables,
         Boolean active,
         Long version,
         String createdBy,

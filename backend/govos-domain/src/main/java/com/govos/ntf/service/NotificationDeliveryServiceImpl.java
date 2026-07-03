@@ -67,7 +67,9 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
         entity.setDeliveryStatus(request.deliveryStatus() != null
                 ? request.deliveryStatus() : DeliveryStatus.PENDING);
         entity.setProviderReference(request.providerReference());
-        entity.setAttemptCount(request.attemptCount() != null ? request.attemptCount() : 0);
+        entity.setRetryCount(request.retryCount() != null ? request.retryCount() : 0);
+        entity.setMaxRetry(request.maxRetry() != null ? request.maxRetry() : 3);
+        entity.setNextRetryAt(request.nextRetryAt());
         entity.setLastAttempt(request.lastAttempt());
         entity.setActive(request.active() != null ? request.active() : true);
         entity.setDeleted(false);
@@ -86,9 +88,13 @@ public class NotificationDeliveryServiceImpl implements NotificationDeliveryServ
             entity.setDeliveryStatus(request.deliveryStatus());
         }
         entity.setProviderReference(request.providerReference());
-        if (request.attemptCount() != null) {
-            entity.setAttemptCount(request.attemptCount());
+        if (request.retryCount() != null) {
+            entity.setRetryCount(request.retryCount());
         }
+        if (request.maxRetry() != null) {
+            entity.setMaxRetry(request.maxRetry());
+        }
+        entity.setNextRetryAt(request.nextRetryAt());
         entity.setLastAttempt(request.lastAttempt());
         if (request.active() != null) {
             entity.setActive(request.active());

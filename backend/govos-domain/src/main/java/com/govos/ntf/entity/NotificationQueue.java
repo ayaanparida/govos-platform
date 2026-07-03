@@ -12,6 +12,10 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 
+/**
+ * Queue metadata for notification delivery with retry policy fields.
+ * Retry engine is not implemented in Sprint 0 Day 7.
+ */
 @Entity
 @Table(name = "ntf_notification_queue", schema = "govos")
 public class NotificationQueue extends AuditableEntity {
@@ -24,11 +28,14 @@ public class NotificationQueue extends AuditableEntity {
     @Column(name = "priority", nullable = false, length = 20)
     private NotificationPriority priority = NotificationPriority.NORMAL;
 
-    @Column(name = "next_execution")
-    private Instant nextExecution;
-
     @Column(name = "retry_count", nullable = false)
     private Integer retryCount = 0;
+
+    @Column(name = "max_retry", nullable = false)
+    private Integer maxRetry = 3;
+
+    @Column(name = "next_retry_at")
+    private Instant nextRetryAt;
 
     public Notification getNotification() {
         return notification;
@@ -46,19 +53,27 @@ public class NotificationQueue extends AuditableEntity {
         this.priority = priority;
     }
 
-    public Instant getNextExecution() {
-        return nextExecution;
-    }
-
-    public void setNextExecution(Instant nextExecution) {
-        this.nextExecution = nextExecution;
-    }
-
     public Integer getRetryCount() {
         return retryCount;
     }
 
     public void setRetryCount(Integer retryCount) {
         this.retryCount = retryCount;
+    }
+
+    public Integer getMaxRetry() {
+        return maxRetry;
+    }
+
+    public void setMaxRetry(Integer maxRetry) {
+        this.maxRetry = maxRetry;
+    }
+
+    public Instant getNextRetryAt() {
+        return nextRetryAt;
+    }
+
+    public void setNextRetryAt(Instant nextRetryAt) {
+        this.nextRetryAt = nextRetryAt;
     }
 }

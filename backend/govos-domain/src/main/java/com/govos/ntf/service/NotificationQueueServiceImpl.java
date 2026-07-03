@@ -56,8 +56,9 @@ public class NotificationQueueServiceImpl implements NotificationQueueService {
         entity.setCode(request.code());
         entity.setNotification(notification);
         entity.setPriority(request.priority() != null ? request.priority() : NotificationPriority.NORMAL);
-        entity.setNextExecution(request.nextExecution());
         entity.setRetryCount(request.retryCount() != null ? request.retryCount() : 0);
+        entity.setMaxRetry(request.maxRetry() != null ? request.maxRetry() : 3);
+        entity.setNextRetryAt(request.nextRetryAt());
         entity.setActive(request.active() != null ? request.active() : true);
         entity.setDeleted(false);
 
@@ -74,10 +75,13 @@ public class NotificationQueueServiceImpl implements NotificationQueueService {
         if (request.priority() != null) {
             entity.setPriority(request.priority());
         }
-        entity.setNextExecution(request.nextExecution());
         if (request.retryCount() != null) {
             entity.setRetryCount(request.retryCount());
         }
+        if (request.maxRetry() != null) {
+            entity.setMaxRetry(request.maxRetry());
+        }
+        entity.setNextRetryAt(request.nextRetryAt());
         if (request.active() != null) {
             entity.setActive(request.active());
         }

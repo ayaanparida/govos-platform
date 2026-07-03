@@ -10,6 +10,8 @@ import com.govos.ntf.exception.NotificationTemplateNotFoundException;
 import com.govos.ntf.mapper.NotificationTemplateMapper;
 import com.govos.ntf.repository.NotificationChannelRepository;
 import com.govos.ntf.repository.NotificationTemplateRepository;
+import com.govos.ntf.template.TemplateVariableExtractor;
+import com.govos.ntf.template.TemplateVariableJson;
 import com.govos.ntf.validator.NotificationTemplateValidator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -72,6 +74,7 @@ public class NotificationTemplateServiceImpl implements NotificationTemplateServ
         entity.setChannel(resolveChannel(request.channelId()));
         entity.setSubjectTemplate(request.subjectTemplate());
         entity.setBodyTemplate(request.bodyTemplate());
+        entity.setTemplateVariables(TemplateVariableJson.toJson(request.templateVariables()));
         entity.setActive(request.active() != null ? request.active() : true);
         entity.setDeleted(false);
 
@@ -90,6 +93,7 @@ public class NotificationTemplateServiceImpl implements NotificationTemplateServ
         entity.setChannel(resolveChannel(request.channelId()));
         entity.setSubjectTemplate(request.subjectTemplate());
         entity.setBodyTemplate(request.bodyTemplate());
+        entity.setTemplateVariables(TemplateVariableJson.toJson(request.templateVariables()));
         if (request.active() != null) {
             entity.setActive(request.active());
         }

@@ -3,7 +3,9 @@ package com.govos.ntf.validator;
 import com.govos.ntf.dto.CreateNotificationTemplateRequest;
 import com.govos.ntf.dto.UpdateNotificationTemplateRequest;
 import com.govos.ntf.exception.DuplicateCodeException;
+import com.govos.ntf.exception.InvalidTemplateVariableException;
 import com.govos.ntf.repository.NotificationTemplateRepository;
+import com.govos.ntf.template.TemplateVariableExtractor;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
@@ -21,6 +23,7 @@ public class NotificationTemplateValidator {
         if (notificationTemplateRepository.existsByCodeAndDeletedFalse(request.code())) {
             throw new DuplicateCodeException("NotificationTemplate", request.code());
         }
+        validateTemplateVariables(request.subjectTemplate(), request.bodyTemplate(), request.templateVariables());
     }
 
     public void validateUpdate(UUID id, UpdateNotificationTemplateRequest request) {
@@ -29,5 +32,18 @@ public class NotificationTemplateValidator {
                 .ifPresent(entity -> {
                     throw new DuplicateCodeException("NotificationTemplate", request.code());
                 });
+        validateTemplateVariables(request.subjectTemplate(), request.bodyTemplate(), request.templateVariables());
+    }
+
+    private void validateTemplateVariables(
+            String subjectTemplate,
+            String bodyTemplate,
+            java.util.List<String> templateVariables) {
+        try {
+            TemplateVariableExtractor.validateDeclaredVariables(
+                    templateVariables, subjectTemplate, bodyTemplate);
+        } catch (IllegalArgumentException e) {
+            throw new InvalidTemplateVariableException(e.getMessage());
+        }
     }
 }

@@ -13,7 +13,7 @@ This module provides the **domain layer only** — no REST controllers, delivery
 | Artifact | Package | Responsibility |
 |----------|---------|----------------|
 | `govos-domain` | `com.govos.ntf` | NTF entities, services, repositories, DTOs, mappers, providers |
-| `govos-infrastructure` | `db/migration` | Flyway migration `V1_5_0__notification.sql` |
+| `govos-infrastructure` | `db/migration` | Flyway `V1_5_0__notification.sql`, `V1_5_1__notification_refinements.sql` |
 
 ## Package Structure
 
@@ -26,9 +26,11 @@ com.govos.ntf
 ├── event           # Domain events (records)
 ├── exception       # Domain exceptions
 ├── mapper          # MapStruct entity ↔ DTO mapping
+├── mdm             # MDM type constants (e.g. DELIVERY_STATUS)
 ├── provider        # NotificationProvider abstraction and stubs
 ├── repository      # Spring Data JPA repositories
 ├── service         # Service interfaces and implementations
+├── template        # Placeholder syntax and variable validation
 └── validator       # Business validation rules
 ```
 
@@ -63,6 +65,39 @@ All entities extend `AuditableEntity` (`govos-common`).
 | `priority` | `LOW`, `NORMAL`, `HIGH`, `URGENT` |
 | `scheduledAt` / `sentAt` | Scheduling metadata (no scheduler yet) |
 
+## Design Decisions
+
+### Template Variables
+
+Templates support `{{variableName}}` placeholders in `subjectTemplate` and `bodyTemplate`:
+
+```
+Hello {{firstName}}
+
+Your complaint {{complaintNumber}} has been assigned to {{officerName}}.
+```
+
+Declared variable names are stored in `templateVariables` (JSON array). `NotificationTemplateValidator` ensures every placeholder in the template text is declared. Rendering is deferred to a later sprint.
+
+### Delivery Status
+
+`DeliveryStatus` enum (future MDM type `DELIVERY_STATUS`):
+
+- `PENDING`, `QUEUED`, `SENT`, `DELIVERED`, `FAILED`, `CANCELLED`
+
+Not a boolean — supports full delivery lifecycle tracking.
+
+### Retry Policy
+
+Retry fields are modeled on queue and delivery records; no retry engine in Sprint 0:
+
+| Entity | Fields |
+|--------|--------|
+| `NotificationQueue` | `retryCount`, `maxRetry`, `nextRetryAt` |
+| `NotificationDelivery` | `retryCount`, `maxRetry`, `nextRetryAt`, `lastAttempt` |
+
+Default `maxRetry` is **3**. `nextRetryAt` is populated when a retry engine is added.
+
 ## Provider Abstraction
 
 | Provider | Status |
@@ -79,7 +114,10 @@ All provider implementations throw `UnsupportedOperationException`.
 
 ## Database
 
-**Migration:** `V1_5_0__notification.sql` (schema version **1.5.0**)
+| Migration | Version | Purpose |
+|-----------|---------|---------|
+| `V1_5_0__notification.sql` | 1.5.0 | Core NTF tables |
+| `V1_5_1__notification_refinements.sql` | 1.5.1 | Template variables, delivery status, retry fields |
 
 Partial unique indexes support soft-delete for codes, user-channel preferences, and subscriptions.
 
@@ -98,6 +136,7 @@ Partial unique indexes support soft-delete for codes, user-channel preferences, 
 ### Business Rules
 
 - Duplicate codes rejected (channel, notification, template)
+- Template placeholders must be declared in `templateVariables`
 - Unique user-channel preference per active record
 - Unique user-event-channel subscription per active record
 - Optimistic locking via `version` on update operations

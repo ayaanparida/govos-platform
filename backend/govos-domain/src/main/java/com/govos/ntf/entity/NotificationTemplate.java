@@ -8,6 +8,12 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
+/**
+ * Reusable notification template with {@code {{variableName}}} placeholders.
+ * <p>
+ * Declared variable names are stored in {@link #templateVariables} as a JSON array
+ * (e.g. {@code ["firstName","complaintNumber","officerName"]}).
+ */
 @Entity
 @Table(name = "ntf_notification_template", schema = "govos")
 public class NotificationTemplate extends AuditableEntity {
@@ -24,6 +30,9 @@ public class NotificationTemplate extends AuditableEntity {
 
     @Column(name = "body_template", columnDefinition = "TEXT")
     private String bodyTemplate;
+
+    @Column(name = "template_variables", columnDefinition = "TEXT")
+    private String templateVariables;
 
     public String getName() {
         return name;
@@ -55,5 +64,13 @@ public class NotificationTemplate extends AuditableEntity {
 
     public void setBodyTemplate(String bodyTemplate) {
         this.bodyTemplate = bodyTemplate;
+    }
+
+    public String getTemplateVariables() {
+        return templateVariables;
+    }
+
+    public void setTemplateVariables(String templateVariables) {
+        this.templateVariables = templateVariables;
     }
 }

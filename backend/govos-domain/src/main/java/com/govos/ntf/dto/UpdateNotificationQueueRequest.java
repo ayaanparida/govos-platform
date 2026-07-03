@@ -9,8 +9,9 @@ public record UpdateNotificationQueueRequest(
         @Size(max = 100)
         String code,
         NotificationPriority priority,
-        Instant nextExecution,
         Integer retryCount,
+        Integer maxRetry,
+        Instant nextRetryAt,
         Boolean active,
         Long version
 ) {

@@ -15,7 +15,9 @@ public record CreateNotificationDeliveryRequest(
         DeliveryStatus deliveryStatus,
         @Size(max = 255)
         String providerReference,
-        Integer attemptCount,
+        Integer retryCount,
+        Integer maxRetry,
+        Instant nextRetryAt,
         Instant lastAttempt,
         Boolean active
 ) {

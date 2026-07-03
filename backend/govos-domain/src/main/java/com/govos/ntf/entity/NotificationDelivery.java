@@ -27,8 +27,14 @@ public class NotificationDelivery extends AuditableEntity {
     @Column(name = "provider_reference", length = 255)
     private String providerReference;
 
-    @Column(name = "attempt_count", nullable = false)
-    private Integer attemptCount = 0;
+    @Column(name = "retry_count", nullable = false)
+    private Integer retryCount = 0;
+
+    @Column(name = "max_retry", nullable = false)
+    private Integer maxRetry = 3;
+
+    @Column(name = "next_retry_at")
+    private Instant nextRetryAt;
 
     @Column(name = "last_attempt")
     private Instant lastAttempt;
@@ -57,12 +63,28 @@ public class NotificationDelivery extends AuditableEntity {
         this.providerReference = providerReference;
     }
 
-    public Integer getAttemptCount() {
-        return attemptCount;
+    public Integer getRetryCount() {
+        return retryCount;
     }
 
-    public void setAttemptCount(Integer attemptCount) {
-        this.attemptCount = attemptCount;
+    public void setRetryCount(Integer retryCount) {
+        this.retryCount = retryCount;
+    }
+
+    public Integer getMaxRetry() {
+        return maxRetry;
+    }
+
+    public void setMaxRetry(Integer maxRetry) {
+        this.maxRetry = maxRetry;
+    }
+
+    public Instant getNextRetryAt() {
+        return nextRetryAt;
+    }
+
+    public void setNextRetryAt(Instant nextRetryAt) {
+        this.nextRetryAt = nextRetryAt;
     }
 
     public Instant getLastAttempt() {

@@ -13,8 +13,9 @@ public record CreateNotificationQueueRequest(
         @NotNull
         UUID notificationId,
         NotificationPriority priority,
-        Instant nextExecution,
         Integer retryCount,
+        Integer maxRetry,
+        Instant nextRetryAt,
         Boolean active
 ) {
 }
