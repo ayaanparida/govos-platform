@@ -23,6 +23,14 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.govos</groupId>
+            <artifactId>govos-domain</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.govos</groupId>
+            <artifactId>govos-infrastructure</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
@@ -42,6 +50,10 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <skip>false</skip>
+                    <mainClass>com.govos.GovosApplication</mainClass>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>

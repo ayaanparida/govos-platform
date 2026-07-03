@@ -17,4 +17,11 @@
     <name>GovOS Common</name>
     <description>Shared utilities, base classes, and cross-cutting helpers</description>
 
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+    </dependencies>
+
 </project>
