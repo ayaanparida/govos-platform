@@ -24,7 +24,10 @@ public class FlywayConfig {
                 .locations(PersistenceConstants.FLYWAY_MIGRATION_LOCATION)
                 .table(PersistenceConstants.FLYWAY_HISTORY_TABLE)
                 .baselineOnMigrate(true)
-                .validateOnMigrate(true);
+                .validateOnMigrate(true)
+                .validateMigrationNaming(true)
+                .outOfOrder(false)
+                .cleanDisabled(true);
     }
 
 }

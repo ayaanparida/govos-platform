@@ -41,17 +41,33 @@ com.govos.infrastructure
 
 ## Flyway Migrations
 
+See [db/migration/README.md](src/main/resources/db/migration/README.md) for the full strategy.
+
+### Version Scheme
+
+```
+V{major}_{minor}_{patch}__{description}.sql
+```
+
+Sprint 0 uses major `1` with minor numbers assigned per bounded context (1.1 = MDM, 1.2 = IDM, …). Patch versions (`1.3.1`, `1.5.1`) are for non-breaking refinements within a module.
+
 | Version | File | Scope |
 |---------|------|-------|
-| V1 | `V1__baseline.sql` | Extensions + `govos` schema |
-| V2–V9 | Reserved | Identity (`idm_*`) |
-| V10–V19 | Reserved | Organization (`org_*`) |
-| V20–V29 | Reserved | Audit (`aud_*`) |
+| 1.0.0 | `V1__baseline.sql` | Extensions + `govos` schema |
+| 1.1.0 | `V1_1_0__master_data.sql` | MDM (`mdm_*`) |
+| 1.2.0 | `V1_2_0__identity.sql` | IDM (`idm_*`) |
+| 1.3.0 | `V1_3_0__organization.sql` | ORG (`org_*`) |
+| 1.3.1 | `V1_3_1__organization_refinements.sql` | ORG refinements |
+| 1.4.0 | `V1_4_0__document_management.sql` | DOC (`doc_*`) |
+| 1.5.0 | `V1_5_0__notification.sql` | NTF (`ntf_*`) |
+| 1.5.1 | `V1_5_1__notification_refinements.sql` | NTF refinements |
+| 1.6.0 | `V1_6_0__workflow.sql` | WRK (`wrk_*`) |
 
 **Rules:**
 - Migration files are immutable once merged
 - Never use `ddl-auto: create` or `update`
-- One migration per schema change
+- One migration per schema change; coordinate version numbers in PRs
+- Flyway: `validateOnMigrate`, `validateMigrationNaming`, `outOfOrder=false`, `cleanDisabled=true`
 
 ## Hibernate Settings
 
