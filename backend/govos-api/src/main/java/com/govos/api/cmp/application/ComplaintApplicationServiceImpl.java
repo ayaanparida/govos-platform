@@ -1,5 +1,9 @@
 package com.govos.api.cmp.application;
 
+import com.govos.api.cmp.audit.ComplaintAuditIntegration;
+import com.govos.api.cmp.notification.ComplaintNotificationIntegration;
+import com.govos.api.cmp.search.ComplaintSearchIntegration;
+import com.govos.api.cmp.workflow.ComplaintWorkflowIntegration;
 import com.govos.cmp.dto.ComplaintAssignmentCreateRequest;
 import com.govos.cmp.dto.ComplaintAssignmentDto;
 import com.govos.cmp.dto.ComplaintAttachmentCreateRequest;
@@ -45,6 +49,10 @@ public class ComplaintApplicationServiceImpl implements ComplaintApplicationServ
     private final ComplaintEscalationService complaintEscalationService;
     private final ComplaintDuplicateService complaintDuplicateService;
     private final ComplaintMergeService complaintMergeService;
+    private final ComplaintWorkflowIntegration complaintWorkflowIntegration;
+    private final ComplaintNotificationIntegration complaintNotificationIntegration;
+    private final ComplaintAuditIntegration complaintAuditIntegration;
+    private final ComplaintSearchIntegration complaintSearchIntegration;
 
     public ComplaintApplicationServiceImpl(
             ComplaintService complaintService,
@@ -54,7 +62,11 @@ public class ComplaintApplicationServiceImpl implements ComplaintApplicationServ
             ComplaintAssignmentService complaintAssignmentService,
             ComplaintEscalationService complaintEscalationService,
             ComplaintDuplicateService complaintDuplicateService,
-            ComplaintMergeService complaintMergeService) {
+            ComplaintMergeService complaintMergeService,
+            ComplaintWorkflowIntegration complaintWorkflowIntegration,
+            ComplaintNotificationIntegration complaintNotificationIntegration,
+            ComplaintAuditIntegration complaintAuditIntegration,
+            ComplaintSearchIntegration complaintSearchIntegration) {
         this.complaintService = complaintService;
         this.complaintCommentService = complaintCommentService;
         this.complaintAttachmentService = complaintAttachmentService;
@@ -63,18 +75,28 @@ public class ComplaintApplicationServiceImpl implements ComplaintApplicationServ
         this.complaintEscalationService = complaintEscalationService;
         this.complaintDuplicateService = complaintDuplicateService;
         this.complaintMergeService = complaintMergeService;
+        this.complaintWorkflowIntegration = complaintWorkflowIntegration;
+        this.complaintNotificationIntegration = complaintNotificationIntegration;
+        this.complaintAuditIntegration = complaintAuditIntegration;
+        this.complaintSearchIntegration = complaintSearchIntegration;
     }
 
     @Override
     @Transactional
     public ComplaintDto create(ComplaintCreateRequest request) {
-        return complaintService.create(request);
+        ComplaintDto created = complaintService.create(request);
+        complaintAuditIntegration.onCreated(created, created.submittedByUserId());
+        complaintSearchIntegration.onCreated(created);
+        return created;
     }
 
     @Override
     @Transactional
     public ComplaintDto update(UUID id, ComplaintUpdateRequest request) {
-        return complaintService.update(id, request);
+        ComplaintDto updated = complaintService.update(id, request);
+        complaintAuditIntegration.onUpdated(updated, null);
+        complaintSearchIntegration.onUpdated(updated);
+        return updated;
     }
 
     @Override
@@ -95,73 +117,123 @@ public class ComplaintApplicationServiceImpl implements ComplaintApplicationServ
     @Override
     @Transactional
     public void softDelete(UUID id) {
+        ComplaintDto complaint = complaintService.getById(id);
         complaintService.softDelete(id);
+        complaintAuditIntegration.onSoftDeleted(complaint, null);
+        complaintSearchIntegration.onSoftDeleted(complaint);
     }
 
     @Override
     @Transactional
     public ComplaintDto restore(UUID id) {
-        return complaintService.restore(id);
+        ComplaintDto restored = complaintService.restore(id);
+        complaintAuditIntegration.onRestored(restored, null);
+        complaintSearchIntegration.onRestored(restored);
+        return restored;
     }
 
     @Override
     @Transactional
     public ComplaintDto submit(UUID id, UUID changedByUserId) {
-        return complaintService.submit(id, changedByUserId);
+        ComplaintDto submitted = complaintService.submit(id, changedByUserId);
+        UUID workflowInstanceId = complaintWorkflowIntegration.startWorkflowOnSubmit(submitted, changedByUserId);
+        ComplaintDto linked = complaintService.linkWorkflowInstance(id, workflowInstanceId);
+        complaintNotificationIntegration.onSubmitted(linked);
+        complaintAuditIntegration.onSubmitted(linked, changedByUserId);
+        complaintSearchIntegration.onSubmitted(linked);
+        return linked;
     }
 
     @Override
     @Transactional
     public ComplaintDto accept(UUID id, UUID changedByUserId) {
-        return complaintService.accept(id, changedByUserId);
+        ComplaintDto accepted = complaintService.accept(id, changedByUserId);
+        complaintNotificationIntegration.onAccepted(accepted);
+        complaintAuditIntegration.onAccepted(accepted, changedByUserId);
+        return accepted;
     }
 
     @Override
     @Transactional
     public ComplaintDto reject(UUID id, UUID changedByUserId, String rejectionReasonKey) {
-        return complaintService.reject(id, changedByUserId, rejectionReasonKey);
+        ComplaintDto rejected = complaintService.reject(id, changedByUserId, rejectionReasonKey);
+        complaintNotificationIntegration.onRejected(rejected, rejectionReasonKey);
+        complaintAuditIntegration.onRejected(rejected, changedByUserId);
+        return rejected;
     }
 
     @Override
     @Transactional
     public ComplaintDto assign(UUID id, ComplaintAssignmentCreateRequest assignmentRequest) {
-        return complaintService.assign(id, assignmentRequest);
+        ComplaintDto assigned = complaintService.assign(id, assignmentRequest);
+        complaintWorkflowIntegration.createTaskOnAssign(
+                assigned, assignmentRequest, assignmentRequest.assignedByUserId());
+        complaintNotificationIntegration.onAssigned(assigned, assignmentRequest);
+        complaintAuditIntegration.onAssigned(assigned, assignmentRequest.assignedByUserId());
+        complaintSearchIntegration.onAssigned(assigned);
+        return assigned;
     }
 
     @Override
     @Transactional
     public ComplaintDto startProgress(UUID id, UUID changedByUserId) {
-        return complaintService.startProgress(id, changedByUserId);
+        ComplaintDto inProgress = complaintService.startProgress(id, changedByUserId);
+        complaintNotificationIntegration.onInProgress(inProgress);
+        complaintAuditIntegration.onInProgress(inProgress, changedByUserId);
+        complaintSearchIntegration.onInProgress(inProgress);
+        return inProgress;
     }
 
     @Override
     @Transactional
     public ComplaintDto resolve(UUID id, UUID changedByUserId, String reasonKey) {
-        return complaintService.resolve(id, changedByUserId, reasonKey);
+        ComplaintDto resolved = complaintService.resolve(id, changedByUserId, reasonKey);
+        complaintWorkflowIntegration.moveToApprovalOnResolve(resolved, changedByUserId);
+        complaintNotificationIntegration.onResolved(resolved);
+        complaintAuditIntegration.onResolved(resolved, changedByUserId);
+        complaintSearchIntegration.onResolved(resolved);
+        return resolved;
     }
 
     @Override
     @Transactional
     public ComplaintDto close(UUID id, UUID changedByUserId, String closureReasonKey) {
-        return complaintService.close(id, changedByUserId, closureReasonKey);
+        ComplaintDto closed = complaintService.close(id, changedByUserId, closureReasonKey);
+        complaintWorkflowIntegration.completeWorkflowOnClose(closed, changedByUserId);
+        complaintNotificationIntegration.onClosed(closed);
+        complaintAuditIntegration.onClosed(closed, changedByUserId);
+        complaintSearchIntegration.onClosed(closed);
+        return closed;
     }
 
     @Override
     @Transactional
     public ComplaintDto archive(UUID id, UUID changedByUserId) {
-        return complaintService.archive(id, changedByUserId);
+        ComplaintDto archived = complaintService.archive(id, changedByUserId);
+        complaintAuditIntegration.onArchived(archived, changedByUserId);
+        complaintSearchIntegration.onArchived(archived);
+        return archived;
     }
 
     @Override
     @Transactional
     public ComplaintDto reopen(UUID id, UUID changedByUserId, String reasonKey) {
-        return complaintService.reopen(id, changedByUserId, reasonKey);
+        ComplaintDto reopened = complaintService.reopen(id, changedByUserId, reasonKey);
+        complaintWorkflowIntegration.createFollowUpTaskOnReopen(reopened, changedByUserId);
+        complaintNotificationIntegration.onReopened(reopened);
+        complaintAuditIntegration.onReopened(reopened, changedByUserId);
+        complaintSearchIntegration.onReopened(reopened);
+        return reopened;
     }
 
     @Override
     @Transactional
     public ComplaintDto requestReassignment(UUID id, UUID changedByUserId, String rejectionReasonKey) {
-        return complaintService.requestReassignment(id, changedByUserId, rejectionReasonKey);
+        ComplaintDto pending = complaintService.requestReassignment(id, changedByUserId, rejectionReasonKey);
+        complaintWorkflowIntegration.reassignCurrentTask(pending, changedByUserId);
+        complaintNotificationIntegration.onReassignmentRequested(pending);
+        complaintAuditIntegration.onReassigned(pending, changedByUserId);
+        return pending;
     }
 
     @Override
@@ -170,7 +242,10 @@ public class ComplaintApplicationServiceImpl implements ComplaintApplicationServ
             UUID id,
             ComplaintDuplicateCreateRequest duplicateRequest,
             UUID changedByUserId) {
-        return complaintService.markDuplicate(id, duplicateRequest, changedByUserId);
+        ComplaintDto duplicate = complaintService.markDuplicate(id, duplicateRequest, changedByUserId);
+        complaintAuditIntegration.onDuplicateCreated(duplicate, changedByUserId);
+        complaintSearchIntegration.onDuplicateCreated(duplicate);
+        return duplicate;
     }
 
     @Override
@@ -179,13 +254,21 @@ public class ComplaintApplicationServiceImpl implements ComplaintApplicationServ
             UUID survivingComplaintId,
             ComplaintMergeCreateRequest mergeRequest,
             UUID changedByUserId) {
-        return complaintService.merge(survivingComplaintId, mergeRequest, changedByUserId);
+        ComplaintDto merged = complaintService.merge(survivingComplaintId, mergeRequest, changedByUserId);
+        complaintAuditIntegration.onMergeCreated(merged, changedByUserId);
+        complaintSearchIntegration.onMergeCreated(merged);
+        return merged;
     }
 
     @Override
     @Transactional
     public ComplaintCommentDto addComment(ComplaintCommentCreateRequest request) {
-        return complaintCommentService.addComment(request);
+        ComplaintCommentDto comment = complaintCommentService.addComment(request);
+        ComplaintDto complaint = complaintService.getById(request.complaintId());
+        complaintNotificationIntegration.onCommentAdded(complaint, comment);
+        complaintAuditIntegration.onCommentAdded(complaint, request.authorUserId());
+        complaintSearchIntegration.onCommentAdded(complaint);
+        return comment;
     }
 
     @Override
@@ -196,7 +279,11 @@ public class ComplaintApplicationServiceImpl implements ComplaintApplicationServ
     @Override
     @Transactional
     public ComplaintAttachmentDto addAttachment(ComplaintAttachmentCreateRequest request) {
-        return complaintAttachmentService.addAttachment(request);
+        ComplaintAttachmentDto attachment = complaintAttachmentService.addAttachment(request);
+        ComplaintDto complaint = complaintService.getById(request.complaintId());
+        complaintAuditIntegration.onAttachmentAdded(complaint, request.uploadedByUserId());
+        complaintSearchIntegration.onAttachmentAdded(complaint);
+        return attachment;
     }
 
     @Override
@@ -207,14 +294,20 @@ public class ComplaintApplicationServiceImpl implements ComplaintApplicationServ
     @Override
     @Transactional
     public ComplaintFeedbackDto createFeedback(ComplaintFeedbackCreateRequest request) {
-        return complaintFeedbackService.createFeedback(request);
+        ComplaintFeedbackDto feedback = complaintFeedbackService.createFeedback(request);
+        ComplaintDto complaint = complaintService.getById(request.complaintId());
+        complaintAuditIntegration.onFeedbackSubmitted(complaint, request.ratedByUserId());
+        return feedback;
     }
 
     @Override
     @Transactional
     public ComplaintFeedbackDto updateFeedback(UUID complaintId, ComplaintFeedbackUpdateRequest request) {
         ComplaintFeedbackDto existing = complaintFeedbackService.getFeedback(complaintId);
-        return complaintFeedbackService.updateFeedback(existing.id(), request);
+        ComplaintFeedbackDto updated = complaintFeedbackService.updateFeedback(existing.id(), request);
+        ComplaintDto complaint = complaintService.getById(complaintId);
+        complaintAuditIntegration.onFeedbackUpdated(complaint, existing.ratedByUserId());
+        return updated;
     }
 
     @Override
@@ -230,7 +323,11 @@ public class ComplaintApplicationServiceImpl implements ComplaintApplicationServ
     @Override
     @Transactional
     public ComplaintEscalationDto createEscalation(ComplaintEscalationCreateRequest request) {
-        return complaintEscalationService.createEscalation(request);
+        ComplaintEscalationDto escalation = complaintEscalationService.createEscalation(request);
+        ComplaintDto complaint = complaintService.getById(request.complaintId());
+        complaintNotificationIntegration.onEscalated(complaint, escalation);
+        complaintAuditIntegration.onEscalated(complaint, request.escalatedByUserId());
+        return escalation;
     }
 
     @Override

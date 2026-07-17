@@ -50,4 +50,6 @@ public interface ComplaintService {
     ComplaintDto markDuplicate(UUID id, ComplaintDuplicateCreateRequest duplicateRequest, UUID changedByUserId);
 
     ComplaintDto merge(UUID survivingComplaintId, ComplaintMergeCreateRequest mergeRequest, UUID changedByUserId);
+
+    ComplaintDto linkWorkflowInstance(UUID complaintId, UUID workflowInstanceId);
 }

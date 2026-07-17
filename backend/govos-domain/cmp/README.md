@@ -1291,16 +1291,402 @@ Controllers remain unchanged when cross-module services are added:
 
 | Sprint | Integration | Injected into |
 |--------|-------------|---------------|
-| CMP-012 | Workflow (`WorkflowService`) | `ComplaintApplicationServiceImpl` |
-| CMP-013 | Notification (`NotificationService`) | `ComplaintApplicationServiceImpl` |
-| CMP-014 | Audit (`AuditService`) | `ComplaintApplicationServiceImpl` |
-| CMP-015 | Search (`SearchService`) | `ComplaintApplicationServiceImpl` |
+| CMP-012 | Workflow (`WorkflowDefinitionService`, `WorkflowInstanceService`, etc.) | `ComplaintWorkflowIntegration` |
+| CMP-013 | Notification (`NotificationService`) | `ComplaintNotificationIntegration` |
+| CMP-014 | Audit (`AuditEventService`) | `ComplaintAuditIntegration` |
+| CMP-015 | Search (`SearchIndexService`) | `ComplaintSearchIntegration` |
 
 Domain services (`ComplaintService` et al.) stay pure — integrations hook only at the application layer.
 
 ### Application layer tests
 
 10 unit tests in `ComplaintApplicationServiceTest` — mocked domain services, verifies delegation and feedback-update orchestration only.
+
+---
+
+## 11.4 CMP-012 Workflow Integration
+
+CMP coordinates with WRK through `ComplaintWorkflowIntegration` in `com.govos.api.cmp.workflow`. Only the application layer calls WRK services — domain services and controllers remain unchanged.
+
+### Ownership matrix
+
+| Concern | Owner | CMP artifact |
+|---------|-------|--------------|
+| Business lifecycle status | CMP (`ComplaintService`) | `ComplaintStatus`, status history |
+| Process execution state | WRK | `WorkflowInstance`, `WorkflowTask`, `WorkflowHistory` |
+| Workflow definition | WRK | Resolved by `workflowCode = "CMP_STANDARD"` |
+| Cross-module orchestration | Application layer | `ComplaintApplicationServiceImpl`, `ComplaintWorkflowIntegration` |
+| Denormalized instance cache | CMP entity field | `Complaint.workflowInstanceId` (optional, set on submit) |
+
+CMP never stores workflow definitions. WRK never decides complaint business status.
+
+### Status synchronization
+
+After a successful CMP domain transition, the application layer invokes WRK:
+
+| CMP transition | Complaint status | WRK action |
+|----------------|------------------|------------|
+| `submit()` | `SUBMITTED` | Create `WorkflowInstance` (`referenceType=COMPLAINT`), start instance (`RUNNING`), cache `workflowInstanceId` |
+| `assign()` | `ASSIGNED` | Create assignment task on first user step |
+| `resolve()` | `RESOLVED` | Complete active task; create approval-step task |
+| `close()` | `CLOSED` | Complete active task; complete workflow instance |
+| `reopen()` | `REOPENED` | Resume instance if needed; create follow-up task |
+| `requestReassignment()` | `PENDING_REASSIGNMENT` | Reset active task to `PENDING` (reassign) |
+| `archive()` | `ARCHIVED` | **No WRK action** |
+
+Workflow definition lookup uses `WorkflowDefinitionService.getByCode("CMP_STANDARD")` and the published version — no hardcoded definition IDs.
+
+### Transaction boundaries
+
+Each orchestrated application method runs in a single `@Transactional` boundary:
+
+1. CMP domain transition (business rules, status history)
+2. WRK synchronization (instance/task/history)
+3. Optional cache update (`linkWorkflowInstance` on submit)
+
+If WRK fails, `ComplaintWorkflowIntegrationException` is thrown and the transaction rolls back — complaint and workflow stay consistent.
+
+### Failure handling
+
+WRK runtime exceptions are wrapped in `ComplaintWorkflowIntegrationException` (extends `ComplaintException` → HTTP 422 via `GlobalExceptionHandler`). No silent partial updates.
+
+### Future BPM extensibility
+
+- Workflow steps and transitions remain in WRK definitions; CMP only reacts to lifecycle milestones
+- CMP-018 will seed the `CMP_STANDARD` workflow graph
+- Event publishing (CMP domain events → WRK listeners) deferred to a later sprint
+- Notification, Audit, and Search integrations remain separate (CMP-014–015)
+
+### Workflow integration tests
+
+8 unit tests in `ComplaintWorkflowIntegrationTest` — mocked WRK services. Covers workflow start, task create, approval step, workflow complete, reopen task, reassignment, and negative cases.
+
+---
+
+## 11.5 CMP-013 Notification Integration
+
+CMP coordinates with NTF through `ComplaintNotificationIntegration` in `com.govos.api.cmp.notification`. Only the application layer calls NTF services — no providers, templates, or delivery engines in this sprint.
+
+### Sequence
+
+```mermaid
+sequenceDiagram
+    participant C as ComplaintController
+    participant A as ComplaintApplicationService
+    participant D as ComplaintService (domain)
+    participant W as ComplaintWorkflowIntegration
+    participant N as ComplaintNotificationIntegration
+    participant NTF as NotificationService
+
+    C->>A: lifecycle / child resource request
+    A->>D: domain transition
+    D-->>A: ComplaintDto
+    opt workflow sync
+        A->>W: WRK synchronization
+        W-->>A: ok
+    end
+    A->>N: publish notification event
+    N->>NTF: NotificationService.create()
+    NTF-->>A: NotificationDto
+    A-->>C: ApiResponse
+```
+
+### Ownership
+
+| Concern | Owner | CMP artifact |
+|---------|-------|--------------|
+| Business lifecycle | CMP domain | `ComplaintService` |
+| Process execution | WRK | `ComplaintWorkflowIntegration` |
+| Notification records | NTF | `NotificationService.create()` via integration |
+| Orchestration order | Application layer | Domain → Workflow → Notification |
+
+NTF owns notification persistence and future delivery. CMP owns when to publish and the structured payload.
+
+### Rollback rules
+
+All orchestrated methods run in a single `@Transactional` boundary on `ComplaintApplicationServiceImpl`:
+
+1. Domain transition succeeds
+2. Workflow synchronization succeeds (where applicable)
+3. Notification record creation succeeds
+
+If step 2 or 3 fails, the entire transaction rolls back — complaint state, WRK records, and NTF records remain consistent. `NtfException` is wrapped in `ComplaintNotificationIntegrationException` (extends `ComplaintException` → HTTP 422).
+
+### Supported notification events (CMP-013)
+
+| Application method | Event code | Recipient(s) |
+|--------------------|------------|--------------|
+| `submit()` | `CMP_COMPLAINT_SUBMITTED` | Citizen |
+| `accept()` | `CMP_COMPLAINT_ACCEPTED` | Citizen |
+| `reject()` | `CMP_COMPLAINT_REJECTED` | Citizen (includes `rejectionReasonKey` in payload) |
+| `assign()` | `CMP_COMPLAINT_ASSIGNED` | Assigned officer |
+| `requestReassignment()` | `CMP_COMPLAINT_REASSIGNED` | Department supervisor (`DEPT_SUPERVISOR:{departmentId}`) |
+| `startProgress()` | `CMP_COMPLAINT_IN_PROGRESS` | Citizen |
+| `resolve()` | `CMP_COMPLAINT_RESOLVED` | Citizen |
+| `close()` | `CMP_COMPLAINT_CLOSED` | Citizen, officer |
+| `reopen()` | `CMP_COMPLAINT_REOPENED` | Citizen, officer |
+| `addComment()` | `CMP_COMMENT_ADDED` | Citizen (only when `visibility = CITIZEN_VISIBLE`) |
+| `createEscalation()` | `CMP_ESCALATED` | Escalation officer |
+| `archive()` | — | No notification |
+
+Channel resolved via `NotificationChannelService.getByCode("CMP_IN_APP")` — no hardcoded channel IDs.
+
+### Notification payload
+
+Each notification body is JSON (`ComplaintNotificationPayload`):
+
+`complaintId`, `complaintCode`, `organizationId`, `status`, `categoryKey`, `priority`, `citizenUserId`, `assignedOfficerId`, `workflowInstanceId`, `eventTime`, optional `rejectionReasonKey`.
+
+No HTML, SMS, email, or template rendering in this sprint.
+
+### Future provider architecture
+
+- CMP-017 will seed NTF templates matching event codes
+- Delivery engine and providers (`EmailProvider`, `SmsProvider`, etc.) consume `NotificationService` records asynchronously in a later sprint
+- Department supervisor recipient `DEPT_SUPERVISOR:{departmentId}` will resolve to a user ID via ORG when supervisor lookup is integrated
+- Audit integration (CMP-014) follows the same application-layer pattern
+
+### Notification integration tests
+
+13 unit tests in `ComplaintNotificationIntegrationTest` — mocked NTF services. Application service tests verify orchestration order including notification calls.
+
+---
+
+## 11.6 CMP-014 Audit Integration
+
+CMP coordinates with AUD through `ComplaintAuditIntegration` in `com.govos.api.cmp.audit`. Only the application layer calls AUD services — no AOP, entity listeners, Envers, or automatic auditing.
+
+### Sequence
+
+```mermaid
+sequenceDiagram
+    participant C as ComplaintController
+    participant A as ComplaintApplicationService
+    participant D as ComplaintService (domain)
+    participant W as ComplaintWorkflowIntegration
+    participant N as ComplaintNotificationIntegration
+    participant U as ComplaintAuditIntegration
+    participant AUD as AuditEventService
+
+    C->>A: operation request
+    A->>D: domain transition
+    D-->>A: ComplaintDto
+    opt workflow
+        A->>W: WRK sync
+    end
+    opt notification
+        A->>N: NTF publish
+    end
+    A->>U: audit record
+    U->>AUD: AuditEventService.create()
+    AUD-->>A: AuditEventDto
+    A-->>C: ApiResponse
+```
+
+### Ownership
+
+| Concern | Owner | CMP artifact |
+|---------|-------|--------------|
+| Business lifecycle | CMP domain | `ComplaintService` |
+| Process execution | WRK | `ComplaintWorkflowIntegration` |
+| Notification records | NTF | `ComplaintNotificationIntegration` |
+| Audit trail | AUD | `AuditEventService` via integration |
+| Orchestration order | Application layer | Domain → Workflow → Notification → Audit |
+
+CMP never implements audit logic. AUD never decides complaint business rules.
+
+### Rollback rules
+
+Single `@Transactional` boundary on `ComplaintApplicationServiceImpl`:
+
+1. Domain operation succeeds
+2. Workflow sync succeeds (where applicable)
+3. Notification publish succeeds (where applicable)
+4. Audit record creation succeeds
+
+Failure at any integration step throws `ComplaintWorkflowIntegrationException`, `ComplaintNotificationIntegrationException`, or `ComplaintAuditIntegrationException` — entire transaction rolls back.
+
+### Action catalogue
+
+| Application method | Audit event code | AUD action | AUD event type |
+|--------------------|------------------|------------|----------------|
+| `create()` | `CMP_COMPLAINT_CREATED` | `CREATE` | `ENTITY_CREATED` |
+| `update()` | `CMP_COMPLAINT_UPDATED` | `UPDATE` | `ENTITY_UPDATED` |
+| `submit()` | `CMP_COMPLAINT_SUBMITTED` | `TRANSITION` | `ENTITY_UPDATED` |
+| `accept()` | `CMP_COMPLAINT_ACCEPTED` | `TRANSITION` | `ENTITY_UPDATED` |
+| `reject()` | `CMP_COMPLAINT_REJECTED` | `TRANSITION` | `ENTITY_UPDATED` |
+| `assign()` | `CMP_COMPLAINT_ASSIGNED` | `ASSIGN` | `ENTITY_UPDATED` |
+| `requestReassignment()` | `CMP_COMPLAINT_REASSIGNED` | `TRANSITION` | `ENTITY_UPDATED` |
+| `startProgress()` | `CMP_COMPLAINT_IN_PROGRESS` | `TRANSITION` | `ENTITY_UPDATED` |
+| `resolve()` | `CMP_COMPLAINT_RESOLVED` | `TRANSITION` | `ENTITY_UPDATED` |
+| `close()` | `CMP_COMPLAINT_CLOSED` | `TRANSITION` | `ENTITY_UPDATED` |
+| `archive()` | `CMP_COMPLAINT_ARCHIVED` | `TRANSITION` | `ENTITY_UPDATED` |
+| `reopen()` | `CMP_COMPLAINT_REOPENED` | `TRANSITION` | `ENTITY_UPDATED` |
+| `softDelete()` | `CMP_COMPLAINT_SOFT_DELETED` | `DELETE` | `ENTITY_DELETED` |
+| `restore()` | `CMP_COMPLAINT_RESTORED` | `UPDATE` | `ENTITY_UPDATED` |
+| `addComment()` | `CMP_COMMENT_ADDED` | `CREATE` | `ENTITY_CREATED` |
+| `addAttachment()` | `CMP_ATTACHMENT_ADDED` | `CREATE` | `ENTITY_CREATED` |
+| `createFeedback()` | `CMP_FEEDBACK_SUBMITTED` | `CREATE` | `ENTITY_CREATED` |
+| `updateFeedback()` | `CMP_FEEDBACK_UPDATED` | `UPDATE` | `ENTITY_UPDATED` |
+| `createEscalation()` | `CMP_ESCALATED` | `TRANSITION` | `ENTITY_UPDATED` |
+| `markDuplicate()` | `CMP_DUPLICATE_CREATED` | `CREATE` | `ENTITY_CREATED` |
+| `merge()` | `CMP_MERGE_CREATED` | `CREATE` | `ENTITY_CREATED` |
+
+All events use `entityType = "COMPLAINT"`, `entityId = complaint.id`.
+
+### Integration contract
+
+Audit payload (`ComplaintAuditPayload` JSON in `description`):
+
+`auditAction`, `complaintId`, `complaintCode`, `organizationId`, `workflowInstanceId`, `status`, `categoryKey`, `priority`, `performedByUserId`, `requestId` (from MDC), `eventTime`.
+
+- Session resolved via `AuditSessionService.getBySessionId(requestId)` when available
+- No entity snapshots, no field-level diffs, no `AuditChange` records in this sprint
+- `AuditException` wrapped as `ComplaintAuditIntegrationException`
+
+### Future field-level audit roadmap
+
+- CMP-015+ may emit `AuditChange` records for field diffs on update operations
+- Actor resolution via `AuditActorService` when actor registry is populated at login
+- Async audit export for compliance reporting (AUD export service)
+- Search integration (CMP-015) for cross-module audit queries
+
+### Audit integration tests
+
+24 unit tests — 21 parameterized action tests plus session resolution, missing session, and failure cases in `ComplaintAuditIntegrationTest`. Application service tests verify orchestration order and audit failure propagation.
+
+---
+
+## 11.7 CMP-015 Search Integration
+
+CMP coordinates with SRH through `ComplaintSearchIntegration` in `com.govos.api.cmp.search`. Only the application layer calls `SearchIndexService` — no OpenSearch client, Elasticsearch client, async indexing, or domain-side indexing logic.
+
+### Sequence
+
+```mermaid
+sequenceDiagram
+    participant C as ComplaintController
+    participant A as ComplaintApplicationService
+    participant D as ComplaintService (domain)
+    participant W as ComplaintWorkflowIntegration
+    participant N as ComplaintNotificationIntegration
+    participant U as ComplaintAuditIntegration
+    participant S as ComplaintSearchIntegration
+    participant SRH as SearchIndexService
+
+    C->>A: operation request
+    A->>D: domain transition
+    D-->>A: ComplaintDto
+    opt workflow
+        A->>W: WRK sync
+    end
+    opt notification
+        A->>N: NTF publish
+    end
+    A->>U: audit record
+    A->>S: index sync
+    S->>SRH: index / reindex / remove
+    SRH-->>A: complete
+    A-->>C: ApiResponse
+```
+
+### Ownership
+
+| Concern | Owner | CMP artifact |
+|---------|-------|--------------|
+| Business lifecycle | CMP domain | `ComplaintService` |
+| Process execution | WRK | `ComplaintWorkflowIntegration` |
+| Notification records | NTF | `ComplaintNotificationIntegration` |
+| Audit trail | AUD | `ComplaintAuditIntegration` |
+| Search index | SRH | `SearchIndexService` via integration |
+| Orchestration order | Application layer | Domain → Workflow → Notification → Audit → Search |
+
+CMP never implements search logic. SRH never decides complaint business rules.
+
+### Rollback rules
+
+Single `@Transactional` boundary on `ComplaintApplicationServiceImpl`:
+
+1. Domain operation succeeds
+2. Workflow sync succeeds (where applicable)
+3. Notification publish succeeds (where applicable)
+4. Audit record creation succeeds
+5. Search index operation succeeds
+
+Failure at any integration step throws the corresponding integration exception — entire transaction rolls back.
+
+### Indexed document structure
+
+`ComplaintSearchDocument` (JSON payload to SRH):
+
+| Field | Source |
+|-------|--------|
+| `complaintId` | `ComplaintDto.id` |
+| `complaintCode` | `ComplaintDto.code` |
+| `organizationId` | `ComplaintDto.organizationId` |
+| `workflowInstanceId` | `ComplaintDto.workflowInstanceId` |
+| `title` | `ComplaintDto.title` |
+| `description` | `ComplaintDto.description` |
+| `status` | `ComplaintDto.status` |
+| `priority` | `ComplaintDto.priority` |
+| `categoryKey` | `ComplaintDto.categoryKey` |
+| `subCategoryKey` | `ComplaintDto.subCategoryKey` |
+| `citizenUserId` | `ComplaintDto.citizenUserId` |
+| `assignedOfficerId` | `ComplaintDto.assignedOfficerId` |
+| `departmentId` | `ComplaintDto.departmentId` |
+| `officeId` | `ComplaintDto.officeId` |
+| `source` | `ComplaintDto.source` |
+| `latitude` / `longitude` | Location fields |
+| `createdDate` / `updatedDate` | Audit timestamps |
+| `searchText` | Combined searchable text (see below) |
+| `searchVersion` | `ComplaintDto.version` |
+| `active` | `ComplaintDto.active` (false when archived) |
+| `deleted` | Always `false` in index payload; soft-delete uses `remove()` |
+
+**Searchable text** combines: complaint code, title, description, category, sub-category, status, priority, source, address, landmark, ward, village. No attachment contents, comments, or audit data.
+
+Index code: `CMP_COMPLAINT`. Entity type: `COMPLAINT`.
+
+### Lifecycle synchronization
+
+| Application method | SRH operation | Notes |
+|--------------------|---------------|-------|
+| `create()` | `index()` | Initial index |
+| `update()` | `reindex()` | Metadata refresh |
+| `submit()` | `reindex()` | Status + workflow link |
+| `assign()` | `reindex()` | Officer assignment |
+| `startProgress()` | `reindex()` | Status change |
+| `resolve()` | `reindex()` | Status change |
+| `close()` | `reindex()` | Status change |
+| `archive()` | `reindex()` | `active=false` — removed from active officer queues |
+| `reopen()` | `reindex()` | Restored to active queues |
+| `softDelete()` | `remove()` | Document removed from index |
+| `restore()` | `index()` | Re-index restored complaint |
+| `addComment()` | `reindex()` | Parent complaint metadata only |
+| `addAttachment()` | `reindex()` | Metadata only — no binary content |
+| `createFeedback()` | — | No indexing |
+| `updateFeedback()` | — | No indexing |
+| `markDuplicate()` | `reindex()` | Duplicate flags updated |
+| `merge()` | `reindex()` | Surviving complaint updated |
+
+Operations without search sync: `accept()`, `reject()`, `requestReassignment()`, `createEscalation()`.
+
+### Integration contract
+
+- `SearchException` wrapped as `ComplaintSearchIntegrationException`
+- Synchronous orchestration only — no Kafka, RabbitMQ, schedulers, or async indexing
+- No OCR, AI embeddings, or vector fields
+
+### Future AI Search roadmap
+
+- Semantic search via embedding pipeline (out of scope — no vectors in CMP-015)
+- Attachment OCR text appended to `searchText` in a future sprint
+- Cross-module federated search (CMP + AUD + WRK) via SRH query API
+- Geo-radius officer queue filters using indexed lat/long
+
+### Search integration tests
+
+10 unit tests in `ComplaintSearchIntegrationTest` — index, reindex, archive, restore, merge, duplicate, remove, reopen, search text, failure wrapping. Application service tests verify orchestration order and search failure propagation.
 
 ---
 
@@ -1453,11 +1839,11 @@ CMP validators check business rules; Security filter chain checks permissions.
 | 1 | **CMP-008** | **Domain event records — immutable contracts in `com.govos.cmp.event` (this sprint)** |
 | 1 | **CMP-009** | **Unit tests and JaCoCo quality gates for services, validators, mappers (this sprint)** |
 | 2 | **CMP-010** | **REST API — `ComplaintController` in `govos-api`** |
-| 2 | **CMP-011** | **Application Service — `ComplaintApplicationService` orchestration layer (this sprint)** |
-| 2 | CMP-012 | Workflow integration (`WorkflowService`) |
-| 2 | CMP-013 | Notification integration (`NotificationService`) |
-| 2 | CMP-014 | Audit integration (`AuditService`) |
-| 2 | CMP-015 | Search integration (`SearchService`) |
+| 2 | **CMP-011** | **Application Service — `ComplaintApplicationService` orchestration layer** |
+| 2 | **CMP-012** | **Workflow integration — WRK synchronization via application layer** |
+| 2 | **CMP-013** | **Notification integration — NTF orchestration via application layer** |
+| 2 | **CMP-014** | **Audit integration — AUD orchestration via application layer** |
+| 2 | **CMP-015** | **Search integration — SRH orchestration via application layer** |
 | 2 | CMP-016 | MDM seed data for complaint types |
 | 2 | CMP-017 | NTF template seed data |
 | 2 | CMP-018 | WRK complaint workflow definition seed |

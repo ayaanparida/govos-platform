@@ -65,6 +65,10 @@ com.govos.api.platform
 com.govos.api.cmp
 ├── controller     # ComplaintController
 ├── application    # ComplaintApplicationService, ComplaintApplicationServiceImpl
+├── workflow       # ComplaintWorkflowIntegration (CMP-012 WRK sync)
+├── notification   # ComplaintNotificationIntegration (CMP-013 NTF sync)
+├── audit          # ComplaintAuditIntegration (CMP-014 AUD sync)
+├── search         # ComplaintSearchIntegration (CMP-015 SRH sync)
 ├── request        # AssignComplaintRequest, RejectComplaintRequest, ...
 ├── response       # Reuses com.govos.cmp.dto (see ComplaintApiResponses)
 └── mapper         # ComplaintApiMapper

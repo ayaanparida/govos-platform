@@ -309,6 +309,19 @@ public class ComplaintServiceImpl implements ComplaintService {
         return complaintMapper.toDto(surviving);
     }
 
+    @Override
+    @Transactional
+    public ComplaintDto linkWorkflowInstance(UUID complaintId, UUID workflowInstanceId) {
+        Complaint entity = findActiveById(complaintId);
+        if (entity.getWorkflowInstanceId() != null
+                && !entity.getWorkflowInstanceId().equals(workflowInstanceId)) {
+            throw new ComplaintValidationException(
+                    "Complaint already linked to a different workflow instance");
+        }
+        entity.setWorkflowInstanceId(workflowInstanceId);
+        return complaintMapper.toDto(complaintRepository.save(entity));
+    }
+
     private ComplaintDto transition(
             Complaint entity,
             ComplaintStatus targetStatus,
