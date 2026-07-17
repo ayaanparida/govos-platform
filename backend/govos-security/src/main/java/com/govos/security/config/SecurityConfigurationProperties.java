@@ -9,9 +9,28 @@ public class SecurityConfigurationProperties {
 
     public static class Jwt {
 
+        private String secret;
+        private String issuer = "govos";
         private Duration accessTokenTtl = Duration.ofMinutes(15);
         private Duration refreshTokenTtl = Duration.ofDays(7);
+        private Duration clockSkew = Duration.ofSeconds(60);
         private int permissionEmbedThreshold = 50;
+
+        public String getSecret() {
+            return secret;
+        }
+
+        public void setSecret(String secret) {
+            this.secret = secret;
+        }
+
+        public String getIssuer() {
+            return issuer;
+        }
+
+        public void setIssuer(String issuer) {
+            this.issuer = issuer;
+        }
 
         public Duration getAccessTokenTtl() {
             return accessTokenTtl;
@@ -27,6 +46,14 @@ public class SecurityConfigurationProperties {
 
         public void setRefreshTokenTtl(Duration refreshTokenTtl) {
             this.refreshTokenTtl = refreshTokenTtl;
+        }
+
+        public Duration getClockSkew() {
+            return clockSkew;
+        }
+
+        public void setClockSkew(Duration clockSkew) {
+            this.clockSkew = clockSkew;
         }
 
         public int getPermissionEmbedThreshold() {
