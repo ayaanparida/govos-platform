@@ -7,9 +7,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * Phase 1 security module wiring — password encoding and configuration properties only.
- * <p>
- * Filter chain, authentication manager, and JWT beans are deferred to later phases.
+ * Security module wiring — password encoding, configuration properties, and JWT filter chain.
  */
 @Configuration
 @EnableConfigurationProperties(SecurityProperties.class)

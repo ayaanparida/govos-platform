@@ -8,6 +8,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SignatureException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Component;
@@ -33,6 +34,7 @@ public class JwtTokenFactory {
     private final SecretKey signingKey;
     private final Clock clock;
 
+    @Autowired
     public JwtTokenFactory(SecurityProperties securityProperties) {
         this(securityProperties, Clock.systemUTC());
     }

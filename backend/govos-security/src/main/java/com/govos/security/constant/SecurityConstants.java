@@ -16,6 +16,12 @@ public final class SecurityConstants {
     public static final String JWT_CLAIM_SESSION_ID = "session_id";
     public static final String JWT_CLAIM_JTI = "jti";
 
+    public static final String REQUEST_ID_HEADER = "X-Request-ID";
+    public static final String REQUEST_ID_ATTRIBUTE = "govos.requestId";
+    public static final String AUTHENTICATED_USERNAME_ATTRIBUTE = "govos.security.username";
+    public static final String AUTHORIZATION_HEADER = "Authorization";
+    public static final String BEARER_PREFIX = "Bearer ";
+
     private SecurityConstants() {
     }
 }

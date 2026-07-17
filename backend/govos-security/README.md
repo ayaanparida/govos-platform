@@ -1,6 +1,6 @@
 ﻿# GovOS Security
 
-JWT infrastructure and authentication core for the GovOS Enterprise Government Platform.
+JWT infrastructure, authentication core, and servlet security for the GovOS Enterprise Government Platform.
 
 ## Purpose
 
@@ -21,20 +21,26 @@ Architecture reference: `govos-architecture/docs/backend/security.md`
 | Refresh token metadata | Done | `RefreshTokenServiceImpl` — SHA-256 hashed persistence via IDM |
 | Logout orchestration | Done | `LogoutServiceImpl` — revoke tokens, login history, audit events |
 | JWT infrastructure | Done | HS512 access tokens via JJWT; validate, extract claims, authorities |
+| **HTTP security (Phase 3)** | **Done** | Stateless filter chain, JWT filter, 401/403 handlers, `@CurrentUser` |
 | Exception hierarchy | Done | Security + JWT exception types |
 
 ## Package Structure
 
 ```
 com.govos.security
+├── annotation         # @CurrentUser controller parameter injection
 ├── audit              # SecurityAuditPublisher (AUD bridge)
-├── config             # SecurityProperties, module configuration beans
+├── config             # Properties, filter chain, auto-configuration
 ├── constant           # Shared security constants
 ├── exception          # SecurityException hierarchy
+├── filter             # JwtAuthenticationFilter, SecurityRequestLoggingFilter
+├── handler            # AuthenticationEntryPoint, AccessDeniedHandler, API envelope
 ├── jwt                # JWT factory, provider, validator, claims, principal, authentication
+├── matcher            # PublicEndpointMatcher
 ├── model              # AuthenticationRequest, AuthenticationResult
 ├── password           # Password policy, credential resolver, BCrypt service
 ├── provider           # GovosUserPrincipal, GovosUserDetailsService
+├── resolver           # JwtAuthenticationConverter, CurrentUserArgumentResolver
 ├── service            # Authentication, refresh, logout orchestration
 └── util               # Authority helpers, refresh token hashing
 ```
@@ -76,22 +82,74 @@ govos:
       max-per-user: 5
 ```
 
-## JWT Lifecycle
+## Security Lifecycle
 
 ```
-Login (Phase 3 wiring)
+Application startup
+  → SecurityAutoConfiguration (META-INF/spring auto-config)
+  → SecurityFilterChainConfiguration builds SecurityFilterChain
+  → Stateless session, CSRF disabled, CORS enabled
+
+HTTP request
+  → SecurityRequestLoggingFilter (request ID, timing)
+  → JwtAuthenticationFilter (Bearer token → JwtAuthentication)
+  → Spring Security authorization (public vs authenticated)
+  → Controller (@CurrentUser injects JwtPrincipal)
+  → SecurityRequestLoggingFilter logs status + duration
+```
+
+## JWT Flow
+
+```
+Login (govos-api REST — next sprint)
   → AuthenticationServiceImpl validates credentials
   → JwtTokenProviderImpl.createAccessToken(GovosUserPrincipal, sessionId)
   → JwtTokenFactory signs HS512 JWT (15 min TTL)
   → RefreshTokenServiceImpl persists SHA-256 hash of opaque UUID refresh token
 
-Authenticated request (Phase 3 filter)
-  → JwtTokenValidatorImpl.validateAccessToken(token)
-  → JwtClaimsExtractorImpl extracts userId, roles, permissions
-  → JwtTokenFactory.toPrincipal → JwtAuthentication in SecurityContext
+Authenticated request
+  → Authorization: Bearer <access-token>
+  → JwtAuthenticationFilter extracts bearer token
+  → JwtAuthenticationConverter validates via JwtTokenFactory.parseClaims
+  → JwtTokenFactory.toPrincipal → JwtAuthentication in SecurityContextHolder
+  → Request continues; context cleared after response
+
+Invalid / expired token
+  → JwtException → GovosAuthenticationEntryPoint → 401 ApiResponse envelope
+
+Authenticated but not authorized
+  → GovosAccessDeniedHandler → 403 ApiResponse envelope
 
 Logout
   → LogoutServiceImpl revokes refresh token hash via IDM
+```
+
+## Authentication Process
+
+1. **Public endpoints** — matched by `PublicEndpointMatcher` (no JWT required):
+   - `/actuator/**`
+   - `/swagger-ui/**`, `/v3/api-docs/**`
+   - `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`
+2. **Protected endpoints** — require authenticated `JwtAuthentication` in the security context.
+3. **Missing token** — Spring Security invokes `GovosAuthenticationEntryPoint` (401).
+4. **Invalid token** — filter catches `JwtException` and invokes entry point (401).
+5. **Controller injection** — `@CurrentUser JwtPrincipal user` resolved by `CurrentUserArgumentResolver`.
+
+## Request Lifecycle
+
+| Step | Component | Action |
+|------|-----------|--------|
+| 1 | `SecurityRequestLoggingFilter` | Capture start time, propagate `X-Request-ID` |
+| 2 | `JwtAuthenticationFilter` | Parse `Authorization: Bearer`, validate JWT |
+| 3 | `SecurityFilterChain` | Enforce public vs authenticated rules |
+| 4 | Controller | Business logic; `@CurrentUser` available |
+| 5 | `GovosAuthenticationEntryPoint` / `GovosAccessDeniedHandler` | JSON error envelope on failure |
+| 6 | `SecurityRequestLoggingFilter` | Log request ID, username, URI, status, duration |
+
+Log format:
+
+```
+requestId=<id> username=<user|anonymous> uri=<path> status=<code> durationMs=<ms>
 ```
 
 ## Access Token Claims
@@ -121,17 +179,32 @@ Logout
 | Aspect | Policy |
 |--------|--------|
 | Format | Random UUID (opaque) |
-| Client exposure | Raw token returned once at login (Phase 3 REST) |
+| Client exposure | Raw token returned once at login |
 | Persistence | SHA-256 hash only in `idm_refresh_token` |
 | Never stored | Plaintext or BCrypt hash of refresh token |
-| Rotation | Phase 3 REST orchestration |
+| Rotation | REST orchestration in `govos-api` |
 | Session limit | `session.max-per-user` (default 5) |
+
+## Integration with govos-api
+
+`govos-security` registers via `com.govos.security.config.SecurityAutoConfiguration`.
+
+The main application (`com.govos.GovosApplication`) component-scans `com.govos.security.*` when the module is on the classpath.
+
+**Note:** Remove Spring Boot default security auto-config exclusions in `govos-api` `application.yml` only if they block the GovOS filter chain. GovOS uses its own `SecurityFilterChain` bean; ensure `spring.autoconfigure.exclude` does not list `com.govos.security.config.SecurityAutoConfiguration`.
+
+Wire auth REST endpoints and `@GetMapping("/me")` with `@CurrentUser JwtPrincipal` in a follow-up `govos-api` sprint.
 
 ## Testing
 
 JaCoCo gate (≥ 80%) on authentication service implementations.
 
-JWT unit tests cover token generation, expiry, invalid signature, malformed tokens, claims extraction, and authority mapping.
+Phase 3 tests cover:
+
+- `JwtAuthenticationFilter` — public skip, valid token, invalid token, missing header
+- `SecurityFilterChainConfiguration` — public vs protected URLs, `@CurrentUser` resolution
+- `GovosAuthenticationEntryPoint` / `GovosAccessDeniedHandler` — JSON error envelopes
+- `CurrentUserArgumentResolver` — parameter support and principal resolution
 
 Run: `mvnw -pl govos-security verify`
 
@@ -141,18 +214,16 @@ Run: `mvnw -pl govos-security verify`
 |-------|-------|
 | 1 | Module skeleton, properties, BCrypt encoder, UserDetails adapter |
 | 2 | Authentication core, refresh metadata, logout, AUD bridge |
-| **3 (JWT infra — current)** | JJWT HS512, provider/validator/extractor, JwtPrincipal |
-| Next | `JwtAuthenticationFilter`, `SecurityFilterChain`, wire auth REST |
-| Next | `@PreAuthorize`, `GovosAuditorAware` |
+| 3 | JWT infrastructure + HTTP security filter chain, handlers, `@CurrentUser` |
+| Next | Wire auth REST in `govos-api`, `@PreAuthorize`, `GovosAuditorAware` |
 | Next | Integration tests, production hardening |
 
 ## Out of Scope (Current Sprint)
 
-- `SecurityFilterChain` and servlet filters
 - Auth REST endpoint implementation (501 contracts in `govos-api`)
 - `AuthenticationManager`
 - Method-level security (`@PreAuthorize`)
-- OAuth2, SSO, MFA
+- OAuth2, SSO, MFA, Keycloak
 
 ## Document History
 
@@ -161,3 +232,4 @@ Run: `mvnw -pl govos-security verify`
 | 0.1.0 | 2026-07-17 | Phase 1 module foundation |
 | 0.2.0 | 2026-07-17 | Phase 2 authentication core |
 | 0.3.0 | 2026-07-17 | JWT infrastructure (JJWT HS512) |
+| 0.4.0 | 2026-07-17 | Phase 3 HTTP security — filter chain, handlers, `@CurrentUser` |
