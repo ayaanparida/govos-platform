@@ -39,6 +39,28 @@ govos:
   api:
     version: v1
     base-path: /api/v1
+  platform:
+    release: "0.1.0"
+    release-date: "2026-07-17"
+    modules:
+      - name: govos-common
+        version: 0.1.0-SNAPSHOT
+        status: ACTIVE
+      - name: govos-shared
+        version: 0.1.0-SNAPSHOT
+        status: ACTIVE
+      - name: govos-domain
+        version: 0.1.0-SNAPSHOT
+        status: ACTIVE
+      - name: govos-infrastructure
+        version: 0.1.0-SNAPSHOT
+        status: ACTIVE
+      - name: govos-security
+        version: 0.1.0-SNAPSHOT
+        status: ACTIVE
+      - name: govos-api
+        version: 0.1.0-SNAPSHOT
+        status: ACTIVE
   security:
     jwt:
       secret: ${GOVOS_JWT_SECRET:govos-local-jwt-secret-key-minimum-sixty-four-bytes-long-for-hs512-signing!!}

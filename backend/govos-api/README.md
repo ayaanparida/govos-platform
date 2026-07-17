@@ -54,6 +54,13 @@ com.govos.api.auth
 ├── request        # LoginRequest, RefreshTokenRequest, LogoutRequest
 ├── response       # LoginResponse, AuthUserResponse, LogoutResponse, CurrentUserResponse
 └── mapper         # AuthMapper
+
+com.govos.api.platform
+├── controller     # PlatformController
+├── service        # PlatformApplicationService
+├── response       # PlatformInfoResponse, PlatformVersionResponse, ModuleResponse, BuildResponse, HealthResponse
+├── mapper         # PlatformMapper
+└── config         # PlatformProperties, PlatformConfiguration
 ```
 
 ## Authentication API
@@ -181,6 +188,63 @@ GET /me
   → CurrentUserResponse
 ```
 
+## Platform Administration APIs
+
+Operational metadata and health endpoints for platform administrators. All routes require JWT authentication.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/platform/info` | Runtime, build, database, and Flyway metadata |
+| `GET` | `/api/v1/platform/version` | Semantic version and release metadata |
+| `GET` | `/api/v1/platform/modules` | Registered modular monolith modules |
+| `GET` | `/api/v1/platform/build` | Build and Git metadata from `BuildProperties` |
+| `GET` | `/api/v1/platform/health` | Aggregated component health summary |
+
+### Platform info
+
+```json
+{
+  "success": true,
+  "data": {
+    "applicationName": "govos-api",
+    "version": "0.1.0-SNAPSHOT",
+    "environment": "local",
+    "javaVersion": "21.0.11",
+    "springBootVersion": "3.5.16",
+    "database": "PostgreSQL",
+    "flywayVersion": "1.7.0",
+    "buildTime": "2026-07-17T18:00:00Z",
+    "gitCommit": "c5af16c"
+  }
+}
+```
+
+### Platform health
+
+```json
+{
+  "success": true,
+  "data": {
+    "database": "UP",
+    "redis": "NOT_CONFIGURED",
+    "minio": "NOT_CONFIGURED",
+    "opensearch": "NOT_CONFIGURED",
+    "disk": "UP",
+    "memory": "UP",
+    "uptime": "2h 15m 30s"
+  }
+}
+```
+
+Data sources:
+
+- **Environment** — application name, active profiles, version
+- **BuildProperties** — artifact, build time (via `spring-boot-maven-plugin` `build-info`)
+- **GitProperties** — commit and branch when Git metadata is available
+- **Flyway** — current schema version
+- **HealthEndpoint** — database and disk actuator contributors
+- **PlatformProperties** — release label, release date, module catalog (`govos.platform.*`)
+
 ## API Philosophy
 
 - **Versioned URLs** — all business endpoints under `/api/v1`
@@ -286,7 +350,8 @@ govos-api
 | Foundation | Response envelopes, errors, pagination, correlation, OpenAPI |
 | Auth contracts | `/api/v1/auth/**` REST surface |
 | Security Phase 3 | JWT filter chain, `@CurrentUser` |
-| **Auth integration (current)** | Wire login, refresh, logout, `/me` to security services |
+| **Auth integration** | Wire login, refresh, logout, `/me` to security services |
+| **Platform admin (current)** | `/api/v1/platform/**` metadata, modules, build, health |
 | Next | MDM / IDM / ORG read APIs |
 | Next | Complaint module APIs |
 
@@ -297,3 +362,4 @@ govos-api
 | 0.1.0 | 2026-07-17 | Platform API foundation |
 | 0.2.0 | 2026-07-17 | Authentication REST API contracts |
 | 0.3.0 | 2026-07-17 | Authentication API integration with security services |
+| 0.4.0 | 2026-07-17 | Platform Administration APIs |

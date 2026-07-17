@@ -1,0 +1,71 @@
+/* To learn more about Typescript configuration file: https://www.typescriptlang.org/docs/handbook/tsconfig-json.html. */
+/* To learn more about Angular compiler options: https://angular.dev/reference/configs/angular-compiler-options. */
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "baseUrl": ".",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "experimentalDecorators": true,
+    "paths": {
+      "shared": ["projects/shared/src/public-api.ts"],
+      "shared-api": ["projects/shared-api/src/public-api.ts"],
+      "shared-auth": ["projects/shared-auth/src/public-api.ts"],
+      "shared-ui": ["projects/shared-ui/src/public-api.ts"]
+    },
+    "importHelpers": true,
+    "target": "ES2022",
+    "module": "preserve"
+  },
+  "angularCompilerOptions": {
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true,
+    "typeCheckHostBindings": true,
+    "strictTemplates": true
+  },
+  "files": [],
+  "references": [
+    {
+      "path": "./projects/govos-admin/tsconfig.app.json"
+    },
+    {
+      "path": "./projects/govos-citizen/tsconfig.app.json"
+    },
+    {
+      "path": "./projects/govos-officer/tsconfig.app.json"
+    },
+    {
+      "path": "./projects/govos-collector/tsconfig.app.json"
+    },
+    {
+      "path": "./projects/shared/tsconfig.lib.json"
+    },
+    {
+      "path": "./projects/shared/tsconfig.spec.json"
+    },
+    {
+      "path": "./projects/shared-ui/tsconfig.lib.json"
+    },
+    {
+      "path": "./projects/shared-ui/tsconfig.spec.json"
+    },
+    {
+      "path": "./projects/shared-auth/tsconfig.lib.json"
+    },
+    {
+      "path": "./projects/shared-auth/tsconfig.spec.json"
+    },
+    {
+      "path": "./projects/shared-api/tsconfig.lib.json"
+    },
+    {
+      "path": "./projects/shared-api/tsconfig.spec.json"
+    }
+  ]
+}

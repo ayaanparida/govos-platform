@@ -1,0 +1,20 @@
+@use '../../shared-ui/src/lib/styles/govos-theme' as govos-theme;
+
+@import '@angular/material/prebuilt-themes/azure-blue.css';
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+body.govos-theme-light {
+  color-scheme: light;
+}
+
+body.govos-theme-dark {
+  color-scheme: dark;
+}
