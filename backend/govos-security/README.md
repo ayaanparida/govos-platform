@@ -129,7 +129,7 @@ Logout
 1. **Public endpoints** — matched by `PublicEndpointMatcher` (no JWT required):
    - `/actuator/**`
    - `/swagger-ui/**`, `/v3/api-docs/**`
-   - `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`
+   - `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`
 2. **Protected endpoints** — require authenticated `JwtAuthentication` in the security context.
 3. **Missing token** — Spring Security invokes `GovosAuthenticationEntryPoint` (401).
 4. **Invalid token** — filter catches `JwtException` and invokes entry point (401).

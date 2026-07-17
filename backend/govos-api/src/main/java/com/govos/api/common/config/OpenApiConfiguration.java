@@ -12,8 +12,6 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * OpenAPI / Swagger configuration for the GovOS platform API.
- * <p>
- * JWT security scheme is declared as a placeholder for Phase 3 — no enforcement in this sprint.
  */
 @Configuration
 public class OpenApiConfiguration {
@@ -34,7 +32,7 @@ public class OpenApiConfiguration {
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")
                                 .bearerFormat("JWT")
-                                .description("JWT access token (placeholder — enforcement in Security Phase 3)")))
+                                .description("JWT access token obtained from POST /api/v1/auth/login or /refresh")))
                 .addSecurityItem(new SecurityRequirement().addList(BEARER_AUTH_SCHEME));
     }
 }

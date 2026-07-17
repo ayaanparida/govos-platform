@@ -19,7 +19,8 @@ public class PublicEndpointMatcher {
             "/swagger-ui.html",
             "/v3/api-docs/**",
             "/api/v1/auth/login",
-            "/api/v1/auth/refresh"
+            "/api/v1/auth/refresh",
+            "/api/v1/auth/logout"
     };
 
     private final RequestMatcher requestMatcher;
@@ -28,7 +29,9 @@ public class PublicEndpointMatcher {
         RequestMatcher[] matchers = new RequestMatcher[PUBLIC_PATTERNS.length];
         for (int i = 0; i < PUBLIC_PATTERNS.length; i++) {
             String pattern = PUBLIC_PATTERNS[i];
-            if ("/api/v1/auth/login".equals(pattern) || "/api/v1/auth/refresh".equals(pattern)) {
+            if ("/api/v1/auth/login".equals(pattern)
+                    || "/api/v1/auth/refresh".equals(pattern)
+                    || "/api/v1/auth/logout".equals(pattern)) {
                 matchers[i] = new AntPathRequestMatcher(pattern, HttpMethod.POST.name());
             } else {
                 matchers[i] = new AntPathRequestMatcher(pattern);

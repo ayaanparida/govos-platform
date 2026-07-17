@@ -1,5 +1,7 @@
 package com.govos.security.service;
 
+import com.govos.security.model.RefreshTokenRotationResult;
+
 import java.util.UUID;
 
 /**
@@ -9,7 +11,9 @@ import java.util.UUID;
  */
 public interface RefreshTokenService {
 
-    void createRefreshToken(UUID userId);
+    String createRefreshToken(UUID userId);
+
+    RefreshTokenRotationResult rotateRefreshToken(String refreshToken);
 
     void revokeRefreshToken(String refreshToken);
 

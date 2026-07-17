@@ -2,9 +2,12 @@ package com.govos.security.service;
 
 import com.govos.idm.dto.CreateRefreshTokenRequest;
 import com.govos.idm.dto.RefreshTokenDto;
+import com.govos.idm.exception.RefreshTokenNotFoundException;
 import com.govos.security.config.SecurityProperties;
-import org.springframework.beans.factory.annotation.Qualifier;
+import com.govos.security.exception.InvalidTokenException;
+import com.govos.security.model.RefreshTokenRotationResult;
 import com.govos.security.util.RefreshTokenHasher;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +31,7 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
 
     @Override
     @Transactional
-    public void createRefreshToken(UUID userId) {
+    public String createRefreshToken(UUID userId) {
         enforceSessionLimit(userId);
 
         String rawToken = UUID.randomUUID().toString();
@@ -41,6 +44,40 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
                 expiry,
                 false,
                 true));
+
+        return rawToken;
+    }
+
+    @Override
+    @Transactional
+    public RefreshTokenRotationResult rotateRefreshToken(String refreshToken) {
+        RefreshTokenDto existing = resolveActiveRefreshToken(refreshToken);
+        validateNotExpired(existing, refreshToken);
+
+        idmRefreshTokenService.revokeByToken(RefreshTokenHasher.hash(refreshToken));
+
+        String rotatedToken = createRefreshToken(existing.userId());
+        String sessionId = UUID.randomUUID().toString();
+
+        return new RefreshTokenRotationResult(existing.userId(), rotatedToken, sessionId);
+    }
+
+    private RefreshTokenDto resolveActiveRefreshToken(String refreshToken) {
+        try {
+            return idmRefreshTokenService.getByToken(RefreshTokenHasher.hash(refreshToken));
+        } catch (RefreshTokenNotFoundException ex) {
+            throw new InvalidTokenException("Invalid or expired refresh token", ex);
+        }
+    }
+
+    private void validateNotExpired(RefreshTokenDto token, String rawRefreshToken) {
+        if (Boolean.FALSE.equals(token.active()) || Boolean.TRUE.equals(token.revoked())) {
+            throw new InvalidTokenException("Refresh token is no longer active");
+        }
+        if (token.expiry() != null && Instant.now().isAfter(token.expiry())) {
+            idmRefreshTokenService.revokeByToken(RefreshTokenHasher.hash(rawRefreshToken));
+            throw new InvalidTokenException("Refresh token has expired");
+        }
     }
 
     @Override

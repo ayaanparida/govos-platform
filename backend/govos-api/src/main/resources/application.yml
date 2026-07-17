@@ -39,6 +39,17 @@ govos:
   api:
     version: v1
     base-path: /api/v1
+  security:
+    jwt:
+      secret: ${GOVOS_JWT_SECRET:govos-local-jwt-secret-key-minimum-sixty-four-bytes-long-for-hs512-signing!!}
+      issuer: govos
+      access-token-ttl: 15m
+      refresh-token-ttl: 7d
+      clock-skew: 60s
+    session:
+      max-per-user: 5
+    lockout:
+      max-attempts: 5
 
 springdoc:
   api-docs:

@@ -6,8 +6,6 @@ Platform API foundation for the GovOS Enterprise Government Platform.
 
 The `govos-api` module is the **HTTP entry point** of the modular monolith. It hosts REST controllers, cross-cutting API infrastructure, and the Spring Boot application bootstrap.
 
-This sprint delivers the **API foundation only** — standardized responses, error handling, pagination, correlation IDs, and OpenAPI documentation. Business controllers are deferred to domain REST sprints.
-
 ## Architecture
 
 ```
@@ -15,9 +13,13 @@ Client Request
      ↓
 CorrelationIdFilter (X-Request-ID)
      ↓
-Controller (future)
+SecurityRequestLoggingFilter
      ↓
-Domain Service (govos-domain)
+JwtAuthenticationFilter (Bearer JWT)
+     ↓
+Controller
+     ↓
+Security / Domain Services
      ↓
 ApiResponse<T> / PageResponse<T>
      ↓
@@ -30,7 +32,7 @@ GlobalExceptionHandler → ErrorResponse
 |----------|---------|----------------|
 | `govos-api` | `com.govos.api` | REST layer, API infrastructure, Boot entry point |
 | `govos-domain` | `com.govos.*` | Business logic and persistence |
-| `govos-security` | `com.govos.security` | Authentication / authorization (Phase 3 JWT) |
+| `govos-security` | `com.govos.security` | Authentication / authorization, JWT filter chain |
 | `govos-infrastructure` | `com.govos.infrastructure` | JPA, Flyway, technical config |
 
 ## Package Structure
@@ -48,23 +50,26 @@ com.govos.api.common
 
 com.govos.api.auth
 ├── controller     # AuthController
+├── service        # AuthApplicationService
 ├── request        # LoginRequest, RefreshTokenRequest, LogoutRequest
-├── response       # LoginResponse, RefreshTokenResponse, LogoutResponse, CurrentUserResponse
+├── response       # LoginResponse, AuthUserResponse, LogoutResponse, CurrentUserResponse
 └── mapper         # AuthMapper
 ```
 
 ## Authentication API
 
-Frozen REST contracts for platform authentication (`com.govos.api.auth`). Security services are wired via constructor injection; token issuance and enforcement activate in Security Phase 3.
+Platform authentication is wired to `govos-security` services. Controllers delegate to `AuthApplicationService`; no business logic lives in controllers.
 
-| Method | Path | Status | Description |
-|--------|------|--------|-------------|
-| `POST` | `/api/v1/auth/login` | **501** | Credential login — contract only |
-| `POST` | `/api/v1/auth/refresh` | **501** | Refresh access token — contract only |
-| `POST` | `/api/v1/auth/logout` | **501** | Revoke refresh session — contract only |
-| `GET` | `/api/v1/auth/me` | **200** | Placeholder unauthenticated profile |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/v1/auth/login` | Public | Credential login — returns JWT + refresh token |
+| `POST` | `/api/v1/auth/refresh` | Public | Rotate refresh token and issue new access token |
+| `POST` | `/api/v1/auth/logout` | Public | Revoke refresh token and close session |
+| `GET` | `/api/v1/auth/me` | Bearer JWT | Current authenticated user profile |
 
-### Login request
+### Login
+
+**Request**
 
 ```json
 {
@@ -73,39 +78,108 @@ Frozen REST contracts for platform authentication (`com.govos.api.auth`). Securi
 }
 ```
 
-### Login response (future — Phase 3)
+**Response**
 
 ```json
 {
   "success": true,
   "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "accessToken": "eyJhbGciOiJIUzUxMiJ9...",
     "refreshToken": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-    "tokenType": "Bearer",
     "expiresIn": 900,
-    "sessionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    "tokenType": "Bearer",
+    "user": {
+      "userId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "username": "jdoe",
+      "email": "john.doe@gov.example",
+      "roles": ["OFFICER"],
+      "permissions": ["idm:user:read"]
+    }
+  },
+  "requestId": "req-123"
+}
+```
+
+### Refresh
+
+**Request**
+
+```json
+{
+  "refreshToken": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+}
+```
+
+**Response** — same shape as login (`LoginResponse`).
+
+### Logout
+
+**Request**
+
+```json
+{
+  "refreshToken": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+}
+```
+
+**Response**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Session revoked successfully"
   }
 }
 ```
 
-### Current user placeholder (`GET /me`)
+### Current user (`GET /me`)
+
+Requires header:
+
+```
+Authorization: Bearer <accessToken>
+```
+
+**Response**
 
 ```json
 {
   "success": true,
   "data": {
-    "authenticated": false,
-    "userId": null,
-    "username": null,
-    "email": null,
-    "roles": [],
-    "permissions": []
-  },
-  "message": "Unauthenticated placeholder until JWT Phase 3"
+    "authenticated": true,
+    "userId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "username": "jdoe",
+    "email": "john.doe@gov.example",
+    "roles": ["OFFICER"],
+    "permissions": ["idm:user:read", "idm:user:write"]
+  }
 }
 ```
 
-Controllers delegate exclusively to `govos-security` service interfaces (`AuthenticationService`, `RefreshTokenService`, `LogoutService`). Spring Security servlet auto-configuration is **disabled** until JWT Phase 3 to avoid an implicit filter chain.
+### Authentication workflow
+
+```
+POST /login
+  → AuthApplicationService.login()
+  → AuthenticationService.authenticate()
+  → JwtTokenProvider.createAccessToken()
+  → RefreshTokenService.createRefreshToken()
+  → LoginResponse
+
+POST /refresh
+  → RefreshTokenService.rotateRefreshToken()
+  → JwtTokenProvider.createAccessToken()
+  → LoginResponse
+
+POST /logout
+  → LogoutService.logout()
+
+GET /me
+  → @CurrentUser JwtPrincipal
+  → AuthApplicationService.currentUser()
+  → CurrentUserResponse
+```
 
 ## API Philosophy
 
@@ -113,7 +187,7 @@ Controllers delegate exclusively to `govos-security` service interfaces (`Authen
 - **Consistent envelopes** — success payloads wrapped in `ApiResponse<T>`
 - **Explicit errors** — structured `ErrorResponse` with code, message, path, request ID
 - **Correlation** — every request carries `X-Request-ID` for tracing
-- **Thin controllers** — orchestration only; business rules stay in `govos-domain`
+- **Thin controllers** — orchestration in application services; business rules in `govos-security` / `govos-domain`
 - **OpenAPI first** — Swagger UI at `/swagger-ui.html`, spec at `/v3/api-docs`
 
 ## Response Standard
@@ -136,11 +210,11 @@ Controllers delegate exclusively to `govos-security` service interfaces (`Authen
 {
   "code": "VALIDATION_ERROR",
   "message": "Request validation failed",
-  "path": "/api/v1/example",
+  "path": "/api/v1/auth/login",
   "timestamp": "2026-07-17T17:30:00Z",
   "requestId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "errors": [
-    { "field": "code", "message": "must not be blank", "rejectedValue": null }
+    { "field": "username", "message": "must not be blank", "rejectedValue": null }
   ]
 }
 ```
@@ -152,37 +226,40 @@ Controllers delegate exclusively to `govos-security` service interfaces (`Authen
 | `MethodArgumentNotValidException` | 400 | `VALIDATION_ERROR` |
 | `ConstraintViolationException` | 400 | `CONSTRAINT_VIOLATION` |
 | `IllegalArgumentException` | 400 | `INVALID_ARGUMENT` |
+| `AuthenticationFailedException` | 401 | `UNAUTHORIZED` |
+| `InvalidTokenException` / `RefreshTokenNotFoundException` | 401 | `INVALID_TOKEN` |
+| `AccessDeniedException` | 403 | `FORBIDDEN` |
 | `EntityNotFoundException` | 404 | `NOT_FOUND` |
 | `BusinessException` | 422 | custom or `BUSINESS_ERROR` |
 | Unhandled `Exception` | 500 | `INTERNAL_ERROR` |
 
-## Pagination
+## Configuration
 
-List endpoints use Spring Data `Page` mapped via `PageMapper`:
+JWT and session settings (`application.yml`):
 
-```java
-Page<UserDto> page = userService.findAll(pageable);
-return ApiResponse.ok(PageMapper.toPageResponse(page));
+```yaml
+govos:
+  security:
+    jwt:
+      secret: ${GOVOS_JWT_SECRET}
+      issuer: govos
+      access-token-ttl: 15m
+      refresh-token-ttl: 7d
+    session:
+      max-per-user: 5
 ```
 
-Sort query parameter format (via `SortParser`):
+Spring Boot default security auto-configuration is excluded; GovOS `SecurityAutoConfiguration` from `govos-security` provides the stateless JWT filter chain.
+
+## OpenAPI / JWT
+
+`OpenApiConfiguration` declares a Bearer JWT security scheme. Authenticated endpoints (e.g. `GET /me`) require:
 
 ```
-?sort=createdDate,desc&sort=code,asc
+Authorization: Bearer <accessToken>
 ```
 
-Or semicolon-separated: `createdDate,desc;code,asc`
-
-`PageResponse` fields: `content`, `page`, `size`, `totalElements`, `totalPages`, `sort`
-
-## Versioning
-
-| Constant | Value |
-|----------|-------|
-| `ApiConstants.API_VERSION` | `v1` |
-| `ApiConstants.BASE_PATH` | `/api/v1` |
-
-Configured in `application.yml` under `govos.api.version` and `govos.api.base-path`.
+Obtain tokens via `POST /api/v1/auth/login` or `POST /api/v1/auth/refresh`.
 
 ## Dependencies
 
@@ -197,16 +274,9 @@ govos-api
   └── springdoc-openapi-starter-webmvc-ui
 ```
 
-## OpenAPI / JWT Placeholder
+## Out of Scope (Current Sprint)
 
-`OpenApiConfiguration` declares a Bearer JWT security scheme for documentation purposes. **No JWT enforcement** is active in this sprint — Security Phase 3 will wire the filter chain.
-
-## Out of Scope (This Sprint)
-
-- JWT token issuance and validation
-- `SecurityFilterChain` / request authentication enforcement
-- Business / domain REST controllers
-- Complaint module APIs
+- Business / domain REST controllers (MDM, ORG, Complaint)
 - Angular frontend
 
 ## Implementation Roadmap
@@ -214,8 +284,9 @@ govos-api
 | Phase | Scope |
 |-------|-------|
 | Foundation | Response envelopes, errors, pagination, correlation, OpenAPI |
-| **Auth contracts (current)** | `/api/v1/auth/**` frozen REST surface (501 + `/me` placeholder) |
-| Security Phase 3 | JWT, filter chain, wire auth endpoints to services |
+| Auth contracts | `/api/v1/auth/**` REST surface |
+| Security Phase 3 | JWT filter chain, `@CurrentUser` |
+| **Auth integration (current)** | Wire login, refresh, logout, `/me` to security services |
 | Next | MDM / IDM / ORG read APIs |
 | Next | Complaint module APIs |
 
@@ -225,3 +296,4 @@ govos-api
 |---------|------|---------|
 | 0.1.0 | 2026-07-17 | Platform API foundation |
 | 0.2.0 | 2026-07-17 | Authentication REST API contracts |
+| 0.3.0 | 2026-07-17 | Authentication API integration with security services |

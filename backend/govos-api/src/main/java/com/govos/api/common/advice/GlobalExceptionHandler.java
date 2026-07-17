@@ -5,6 +5,9 @@ import com.govos.api.common.exception.EntityNotFoundException;
 import com.govos.api.common.response.ErrorResponse;
 import com.govos.api.common.response.ValidationError;
 import com.govos.api.common.util.RequestContextUtils;
+import com.govos.idm.exception.RefreshTokenNotFoundException;
+import com.govos.security.exception.AuthenticationFailedException;
+import com.govos.security.exception.InvalidTokenException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -88,6 +91,66 @@ public class GlobalExceptionHandler {
         return buildResponse(
                 HttpStatus.UNPROCESSABLE_ENTITY,
                 code,
+                ex.getMessage(),
+                request,
+                null);
+    }
+
+    @ExceptionHandler(AuthenticationFailedException.class)
+    public ResponseEntity<ErrorResponse> handleAuthenticationFailed(
+            AuthenticationFailedException ex,
+            HttpServletRequest request) {
+        return buildResponse(
+                HttpStatus.UNAUTHORIZED,
+                "UNAUTHORIZED",
+                ex.getMessage(),
+                request,
+                null);
+    }
+
+    @ExceptionHandler(InvalidTokenException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidToken(
+            InvalidTokenException ex,
+            HttpServletRequest request) {
+        return buildResponse(
+                HttpStatus.UNAUTHORIZED,
+                "INVALID_TOKEN",
+                ex.getMessage(),
+                request,
+                null);
+    }
+
+    @ExceptionHandler(RefreshTokenNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleRefreshTokenNotFound(
+            RefreshTokenNotFoundException ex,
+            HttpServletRequest request) {
+        return buildResponse(
+                HttpStatus.UNAUTHORIZED,
+                "INVALID_TOKEN",
+                "Invalid or expired refresh token",
+                request,
+                null);
+    }
+
+    @ExceptionHandler(com.govos.security.exception.AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleSecurityAccessDenied(
+            com.govos.security.exception.AccessDeniedException ex,
+            HttpServletRequest request) {
+        return buildResponse(
+                HttpStatus.FORBIDDEN,
+                "FORBIDDEN",
+                ex.getMessage(),
+                request,
+                null);
+    }
+
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleSpringAccessDenied(
+            org.springframework.security.access.AccessDeniedException ex,
+            HttpServletRequest request) {
+        return buildResponse(
+                HttpStatus.FORBIDDEN,
+                "FORBIDDEN",
                 ex.getMessage(),
                 request,
                 null);
