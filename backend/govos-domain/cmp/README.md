@@ -1,11 +1,30 @@
 # GovOS Complaint Management (CMP)
 
-**Sprint 1 — Architecture Blueprint (CMP-001)**
+**Architecture Blueprint — Version CMP-001.6 (frozen v1.0)**
 
 Citizen Grievance Management System (CGMS) bounded context for the GovOS Enterprise Government Platform.
 
-> **Status:** Architecture only. No Java implementation, Flyway, REST, Angular, or tests in this sprint.  
-> **Implementation begins:** CMP-002 onwards.
+> **Status:** Architecture frozen at v1.0 — approved after CMP-001.5 domain review.  
+> **Implementation begins:** CMP-002 onwards.  
+> **Structural changes** after this version require an ADR.
+
+### Document History
+
+| Version | Description |
+|---------|-------------|
+| CMP-001 | Initial domain architecture blueprint |
+| CMP-001.5 | Architecture review (`CMP_ARCHITECTURE_REVIEW.md`) |
+| **CMP-001.6** | **Errata — mandatory amendments from review (current)** |
+
+**CMP-001.6 changes:**
+
+- Added `ARCHIVED` lifecycle state
+- Clarified assignment rejection semantics (`PENDING_REASSIGNMENT`; intake `REJECTED` only at submission)
+- Added `ulbKey` to location model and MDM type `COMPLAINT_ULB`
+- Added CMP ↔ WRK status ownership matrix
+- Expanded notification template catalogue
+- Expanded audit action matrix (authoritative)
+- Documented duplicate/merge as cross-aggregate orchestration
 
 ---
 
@@ -117,8 +136,8 @@ All other complaint-specific tables are **entities within the Complaint aggregat
 | `ComplaintComment` | Child entity | Comments are always scoped to one complaint; extract later only if volume requires |
 | `ComplaintAttachment` | Child entity | Metadata link to DOC; lifecycle tied to complaint |
 | `ComplaintEscalation` | Child entity (append-only) | Escalation is a complaint lifecycle event |
-| `ComplaintDuplicate` | Link entity | Relationship between two complaints; managed via Complaint service |
-| `ComplaintMerge` | Child entity (append-only) | Merge is an administrative action on a complaint |
+| `ComplaintDuplicate` | Link entity | Cross-aggregate reference — mutations via orchestration service (see §3.4) |
+| `ComplaintMerge` | Append-only record | Cross-aggregate operation — not a single-aggregate invariant (see §3.4) |
 | `ComplaintRating` | Child entity | Post-closure feedback; one rating per complaint |
 | `ComplaintWatcher` | Child entity | Subscription to complaint updates |
 | `ComplaintTag` | Link entity | Tag assignment on a complaint |
@@ -135,6 +154,31 @@ All other complaint-specific tables are **entities within the Complaint aggregat
 | `ComplaintChannel` | **MDM reference** (`COMPLAINT_CHANNEL`) |
 | `ComplaintPriority` | **CMP enum** validated against MDM (`COMPLAINT_PRIORITY`) for SLA metadata |
 | `ComplaintCategoryReference` | **Fields on Complaint** — `categoryType` + `categoryKey` MDM lookup; no separate table |
+
+### 3.4 Cross-Aggregate Operations (Duplicate & Merge)
+
+`ComplaintDuplicate` and `ComplaintMerge` reference **two** `Complaint` aggregate instances. They are **not** invariants enforceable within a single aggregate load.
+
+**Orchestration pattern:**
+
+```
+ComplaintDuplicateService / ComplaintMergeService  (application orchestration)
+        │
+        ├── Load primary Complaint aggregate
+        ├── Load duplicate / merged Complaint aggregate (separate transaction boundary)
+        ├── Validate business rules (permissions, status, organization scope)
+        ├── Persist link / merge record
+        ├── Update both complaints (isDuplicate, primaryComplaintId, mergedIntoComplaintId, status)
+        ├── Emit ComplaintDuplicateLinkedEvent / ComplaintMergedEvent
+        └── Create AUD records for both entityIds
+```
+
+**Rules:**
+
+- Duplicate link: duplicate complaint becomes read-only; status may transition to terminal duplicate state via validator
+- Merge: merged complaint is soft-deleted or marked `mergedIntoComplaintId`; surviving complaint retains history
+- All mutations go through `ComplaintOrchestrationService` — never mutate two aggregates from a single repository call without orchestration
+- No JPA cascade between two `Complaint` roots
 
 ---
 
@@ -201,6 +245,7 @@ All entities extend `AuditableEntity` unless noted. Schema: `govos`. Table prefi
 | `addressLine1` | String | |
 | `addressLine2` | String | |
 | `landmark` | String | |
+| `ulbKey` | String | MDM key under `COMPLAINT_ULB` (Urban Local Body) |
 | `wardKey` | String | MDM key (future GIS) |
 | `villageKey` | String | MDM key |
 | `districtKey` | String | MDM key |
@@ -208,6 +253,7 @@ All entities extend `AuditableEntity` unless noted. Schema: `govos`. Table prefi
 | `postalCode` | String | |
 | `latitude` | Decimal | GPS capture |
 | `longitude` | Decimal | GPS capture |
+| `geoJson` | Text | Reserved — future GIS polygon/pin (nullable) |
 
 | Concern | Behavior |
 |---------|----------|
@@ -580,7 +626,13 @@ Stored as `@Enumerated(STRING)`, values `UPPER_SNAKE_CASE`.
 
 ### ComplaintStatus
 
-`DRAFT`, `SUBMITTED`, `ASSIGNED`, `ACCEPTED`, `IN_PROGRESS`, `WAITING_FOR_CITIZEN`, `RESOLVED`, `VERIFIED`, `CLOSED`, `REJECTED`, `CANCELLED`, `REOPENED`
+`DRAFT`, `SUBMITTED`, `ASSIGNED`, `PENDING_REASSIGNMENT`, `ACCEPTED`, `IN_PROGRESS`, `WAITING_FOR_CITIZEN`, `RESOLVED`, `VERIFIED`, `CLOSED`, `ARCHIVED`, `REJECTED`, `CANCELLED`, `REOPENED`
+
+| Status | Phase | Notes |
+|--------|-------|-------|
+| `REJECTED` | Terminal | **Intake rejection only** (admin/collector at `SUBMITTED`) — not used for officer assignment decline |
+| `PENDING_REASSIGNMENT` | Workflow | Officer declined assignment; awaiting admin reassignment |
+| `ARCHIVED` | Retention | Post-`CLOSED` compliance retention; read-only |
 
 ### ComplaintPriority
 
@@ -616,23 +668,23 @@ Stored as `@Enumerated(STRING)`, values `UPPER_SNAKE_CASE`.
                     └────┬─────┘
                          │ submit
                          ▼
-                    ┌──────────┐     reject      ┌──────────┐
-         ┌─────────│SUBMITTED │────────────────►│ REJECTED │
-         │         └────┬─────┘                 └──────────┘
+                    ┌──────────┐   intake reject   ┌──────────┐
+         ┌─────────│SUBMITTED │──────────────────►│ REJECTED │ (terminal)
+         │         └────┬─────┘                   └──────────┘
          │              │ assign
          │              ▼
          │         ┌──────────┐
          │         │ ASSIGNED │
          │         └────┬─────┘
-         │         accept│  reject
-         │              ▼         ──────────────► REJECTED
-         │         ┌──────────┐
-         │         │ ACCEPTED │
-         │         └────┬─────┘
-         │              │ start work
+         │    accept    │    decline assignment (NOT complaint reject)
          │              ▼
-         │    ┌─────────────────┐◄────────────────┐
-         │    │  IN_PROGRESS    │                 │
+         │         ┌──────────┐     reassign      ┌─────────────────────┐
+         │         │ ACCEPTED │◄──────────────────│ PENDING_REASSIGNMENT│
+         │         └────┬─────┘                   └─────────────────────┘
+         │              │ start work                    ▲
+         │              ▼                               │
+         │    ┌─────────────────┐◄─────────────────────┘
+         │    │  IN_PROGRESS    │◄────────────────┐
          │    └────────┬────────┘                 │
          │   wait     │              resume       │
          │              ▼                          │
@@ -651,12 +703,17 @@ Stored as `@Enumerated(STRING)`, values `UPPER_SNAKE_CASE`.
          │         └────┬─────┘
          │              │ close
          │              ▼
-         │         ┌──────────┐
-         └────────►│  CLOSED  │
-                   └──────────┘
+         │         ┌──────────┐     archive      ┌──────────┐
+         └────────►│  CLOSED  │─────────────────►│ ARCHIVED │ (read-only)
+                   └────┬─────┘                  └──────────┘
+                        │ admin reopen
+                        ▼
+                   REOPENED
 
   CANCELLED ← from DRAFT, SUBMITTED (citizen/admin cancel before assignment)
 ```
+
+**Assignment rejection semantics:** When an officer declines an assignment, `ComplaintAssignment.assignmentStatus` becomes `REJECTED`, the complaint transitions to `PENDING_REASSIGNMENT` (or remains in reassignment flow), and admin assigns a new officer. The complaint-level status **`REJECTED` is never used** for officer assignment decline — it is reserved for intake rejection at `SUBMITTED`.
 
 ### 6.2 Transition Matrix
 
@@ -664,12 +721,13 @@ Stored as `@Enumerated(STRING)`, values `UPPER_SNAKE_CASE`.
 |------|----|-------|---------------|
 | `DRAFT` | `SUBMITTED` | Citizen / Officer | Title, description, category required; citizen user set |
 | `DRAFT` | `CANCELLED` | Citizen | Only owner may cancel draft |
-| `SUBMITTED` | `ASSIGNED` | System / Admin | Department and officer assigned; WRK instance started |
-| `SUBMITTED` | `REJECTED` | Admin / Collector | Rejection reason required (MDM key) |
+| `SUBMITTED` | `ASSIGNED` | System / Admin | Department and officer assigned; WRK instance started on submit |
+| `SUBMITTED` | `REJECTED` | Admin / Collector | **Intake rejection only** — reason required (MDM key); terminal |
 | `SUBMITTED` | `CANCELLED` | Citizen / Admin | Before assignment only |
 | `ASSIGNED` | `ACCEPTED` | Officer | Current assignment accepted |
-| `ASSIGNED` | `REJECTED` | Officer | Officer rejection reason; triggers reassignment |
-| `ASSIGNED` | `ASSIGNED` | Admin | Reassignment — new assignment row; status stays ASSIGNED |
+| `ASSIGNED` | `PENDING_REASSIGNMENT` | Officer | Officer declines — `ComplaintAssignment.assignmentStatus = REJECTED`; **not** complaint `REJECTED` |
+| `PENDING_REASSIGNMENT` | `ASSIGNED` | Admin | New assignment row; previous assignment `SUPERSEDED` |
+| `ASSIGNED` | `ASSIGNED` | Admin | Direct reassignment — new assignment row; status stays `ASSIGNED` |
 | `ACCEPTED` | `IN_PROGRESS` | Officer | Officer begins work |
 | `IN_PROGRESS` | `WAITING_FOR_CITIZEN` | Officer | Clarification requested; SLA paused |
 | `WAITING_FOR_CITIZEN` | `IN_PROGRESS` | Citizen / Officer | Clarification provided |
@@ -677,6 +735,7 @@ Stored as `@Enumerated(STRING)`, values `UPPER_SNAKE_CASE`.
 | `RESOLVED` | `VERIFIED` | Citizen | Citizen confirms satisfaction |
 | `RESOLVED` | `REOPENED` | Citizen | Citizen rejects resolution; reason required |
 | `VERIFIED` | `CLOSED` | System / Admin | Auto-close after verification or admin close |
+| `CLOSED` | `ARCHIVED` | System / Admin | Retention/archive policy; read-only |
 | `REOPENED` | `IN_PROGRESS` | Officer | New resolution cycle; previous resolution `isCurrent = false` |
 | `CLOSED` | `REOPENED` | Admin / Collector | Extraordinary reopen; audit + escalation |
 
@@ -686,7 +745,9 @@ Stored as `@Enumerated(STRING)`, values `UPPER_SNAKE_CASE`.
 |---------|--------|
 | Any → `DRAFT` | Draft is creation-only |
 | `CLOSED` → `IN_PROGRESS` | Must go through `REOPENED` |
-| `REJECTED` → any except view | Terminal for that submission |
+| `ARCHIVED` → any except view | Terminal retention state |
+| `ASSIGNED` → `REJECTED` | Officer decline uses `PENDING_REASSIGNMENT`, not intake `REJECTED` |
+| `REJECTED` → any except view | Terminal for that submission (intake only) |
 | `CANCELLED` → any | Terminal |
 | `RESOLVED` → `CLOSED` | Must pass through `VERIFIED` (or admin override with audit) |
 | `ASSIGNED` → `RESOLVED` | Must accept and progress through `IN_PROGRESS` |
@@ -705,11 +766,12 @@ CMP **never** stores workflow definitions. On applicable transitions, CMP calls 
 
 | CMP Transition | WRK Action |
 |----------------|------------|
-| `SUBMITTED` → `ASSIGNED` | Create `WorkflowInstance` with `referenceType = "COMPLAINT"`, `referenceId = complaint.id`; use published complaint workflow definition |
+| `SUBMITTED` | Create `WorkflowInstance` with `referenceType = "COMPLAINT"`, `referenceId = complaint.id` |
 | `ASSIGNED` → `ACCEPTED` | Complete current WRK user task (accept) |
-| `ASSIGNED` → `REJECTED` | Complete WRK task with rejection outcome; WRK routes per definition |
+| `ASSIGNED` → `PENDING_REASSIGNMENT` | Complete WRK task with decline outcome; WRK routes per definition |
 | `IN_PROGRESS` → `RESOLVED` | Complete resolution task |
 | `RESOLVED` → `VERIFIED` | Complete citizen verification task |
+| `WAITING_FOR_CITIZEN` | WRK instance may move to `SUSPENDED` (see §10.3) |
 | `REOPENED` | WRK may create follow-up task per definition — CMP requests via `WorkflowTaskService` |
 
 CMP reads workflow state via:
@@ -720,55 +782,99 @@ workflowInstanceService.getByReference("COMPLAINT", complaintId)
 
 CMP does **not** maintain a `workflow_instance_id` FK. Optional denormalized cache may be added in CMP-010+ for read performance; WRK remains source of truth.
 
-### 6.5 Audit Events per Transition
+### 6.5 Audit Action Matrix (Authoritative)
 
-Each transition publishes a CMP domain event **and** creates an AUD record:
+Every business action **must** produce an AUD `AuditEvent` via `ComplaintOrchestrationService`. Field changes include `AuditChange[]` where applicable.
 
-| Transition | CMP Domain Event | AUD `eventCode` pattern | AUD `action` |
-|------------|------------------|-------------------------|--------------|
-| Create | `ComplaintCreatedEvent` | `{code}-CREATED` | `CREATE` |
-| Submit | `ComplaintSubmittedEvent` | `{code}-SUBMITTED` | `TRANSITION` |
-| Assign | `ComplaintAssignedEvent` | `{code}-ASSIGNED` | `ASSIGN` |
-| Accept | `ComplaintAcceptedEvent` | `{code}-ACCEPTED` | `TRANSITION` |
-| Reject | `ComplaintRejectedEvent` | `{code}-REJECTED` | `TRANSITION` |
-| Resolve | `ComplaintResolvedEvent` | `{code}-RESOLVED` | `TRANSITION` |
-| Verify | `ComplaintVerifiedEvent` | `{code}-VERIFIED` | `TRANSITION` |
-| Close | `ComplaintClosedEvent` | `{code}-CLOSED` | `TRANSITION` |
-| Reopen | `ComplaintReopenedEvent` | `{code}-REOPENED` | `TRANSITION` |
-| Escalate | `ComplaintEscalatedEvent` | `{code}-ESCALATED-{level}` | `TRANSITION` |
+AUD constants: `entityType = "COMPLAINT"`, `entityId = complaint.id`, `eventCode = {code}-{ACTION}`.
 
-AUD `entityType = "COMPLAINT"`, `entityId = complaint.id`. Field diffs via `AuditChange` for updates (category change, priority change, etc.).
+| # | Business action | AUD `action` | AUD `eventType` | CMP domain event |
+|---|-----------------|--------------|-----------------|------------------|
+| 1 | Create draft complaint | `CREATE` | `ENTITY_CREATED` | `ComplaintCreatedEvent` |
+| 2 | Update draft fields | `UPDATE` | `ENTITY_UPDATED` | — |
+| 3 | Submit complaint | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintSubmittedEvent` |
+| 4 | Cancel draft/submitted | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintCancelledEvent` |
+| 5 | Intake reject (admin/collector) | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintRejectedEvent` |
+| 6 | Assign / reassign | `ASSIGN` | `ENTITY_UPDATED` | `ComplaintAssignedEvent` |
+| 7 | Accept assignment | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintAcceptedEvent` |
+| 8 | Reject assignment (officer decline) | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintAssignmentRejectedEvent` |
+| 9 | Start work | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintStatusChangedEvent` |
+| 10 | Request citizen clarification | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintClarificationRequestedEvent` |
+| 11 | Citizen clarification response | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintClarificationReceivedEvent` |
+| 12 | Record resolution | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintResolvedEvent` |
+| 13 | Citizen verify resolution | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintVerifiedEvent` |
+| 14 | Citizen reject resolution | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintResolutionRejectedEvent` |
+| 15 | Close complaint | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintClosedEvent` |
+| 16 | Archive complaint | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintArchivedEvent` |
+| 17 | Reopen complaint | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintReopenedEvent` |
+| 18 | Escalate | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintEscalatedEvent` |
+| 19 | SLA breach recorded | `TRANSITION` | `ENTITY_UPDATED` | `ComplaintSlaBreachedEvent` |
+| 20 | Add comment | `CREATE` | `ENTITY_CREATED` | `ComplaintCommentAddedEvent` |
+| 21 | Retract comment | `DELETE` | `ENTITY_DELETED` | — |
+| 22 | Link attachment | `CREATE` | `ENTITY_CREATED` | `ComplaintAttachmentLinkedEvent` |
+| 23 | Unlink attachment | `DELETE` | `ENTITY_DELETED` | — |
+| 24 | Link duplicate | `UPDATE` | `ENTITY_UPDATED` | `ComplaintDuplicateLinkedEvent` |
+| 25 | Merge complaints | `UPDATE` | `ENTITY_UPDATED` | `ComplaintMergedEvent` |
+| 26 | Submit feedback/rating | `CREATE` | `ENTITY_CREATED` | `ComplaintRatedEvent` |
+| 27 | Change priority | `UPDATE` | `ENTITY_UPDATED` | — |
+| 28 | Change category | `UPDATE` | `ENTITY_UPDATED` | — |
+| 29 | Add/remove watcher | `CREATE` / `DELETE` | `ENTITY_*` | — |
+| 30 | Add/remove tag | `CREATE` / `DELETE` | `ENTITY_*` | — |
+| 31 | Pause/resume SLA | `UPDATE` | `ENTITY_UPDATED` | — |
+| 32 | View complaint (sensitive) | `READ` | `ENTITY_VIEWED` | — (optional v1.1) |
+
+`ComplaintStatusHistory` records status machine transitions (CMP-specific). AUD records compliance-grade audit with optional field diffs — **no duplication** of purpose.
+
+Orchestration rule: **all AUD creation flows through `ComplaintOrchestrationService`** — not scattered across individual services.
 
 ### 6.6 Notifications per Transition
 
 | Transition | Citizen | Officer | Dept Head | Collector | Admin |
 |------------|---------|---------|-----------|-----------|-------|
-| Submitted | ✓ confirmation | | ✓ new complaint | | ✓ |
-| Assigned | ✓ assigned to dept | ✓ new in queue | ✓ | | |
-| Accepted | ✓ officer name | | | | |
-| Rejected (officer) | ✓ reason | | ✓ reassignment needed | | |
-| Rejected (admin) | ✓ reason | | | | |
-| Waiting for citizen | ✓ action required | | | | |
+| Submitted | ✓ | | ✓ | | ✓ |
+| Assigned | ✓ | ✓ | ✓ | | |
+| Accepted | ✓ | | | | |
+| Assignment declined | | | ✓ | | |
+| Reassignment required | | | ✓ | | |
+| Intake rejected | ✓ | | | | |
+| Waiting for citizen | ✓ | | | | |
 | Clarification received | | ✓ | | | |
-| Resolved | ✓ verify request | | | | |
-| Verified | ✓ thank you | ✓ | | | |
+| Resolved | ✓ | | | | |
+| Verified | ✓ | ✓ | | | |
 | Reopened | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Closed | ✓ closure summary | ✓ | | | |
+| Closed | ✓ | ✓ | | | |
+| Archived | | | | | ✓ |
 | Escalated | ✓ | ✓ | ✓ | ✓ | ✓ |
 | SLA breach (future) | | ✓ | ✓ | ✓ | ✓ |
+| Feedback received | | ✓ | | | |
 
-Notifications created via `NotificationService` (NTF) using templates:
+### 6.7 Notification Template Catalogue
 
-- `CMP_COMPLAINT_SUBMITTED`
-- `CMP_COMPLAINT_ASSIGNED`
-- `CMP_COMPLAINT_ACCEPTED`
-- `CMP_COMPLAINT_RESOLVED`
-- `CMP_COMPLAINT_VERIFICATION_REQUEST`
-- `CMP_COMPLAINT_CLOSED`
-- `CMP_COMPLAINT_ESCALATED`
-- `CMP_COMPLAINT_SLA_BREACH`
+All templates registered in NTF (seed data CMP-013). Code format: `CMP_{EVENT}`.
 
-Template variables: `{{complaintNumber}}`, `{{citizenName}}`, `{{officerName}}`, `{{departmentName}}`, `{{status}}`, `{{dueDate}}`.
+| Template code | Trigger | Primary recipients |
+|---------------|---------|-------------------|
+| `CMP_COMPLAINT_SUBMITTED` | Submit | Citizen, dept head, admin |
+| `CMP_COMPLAINT_ASSIGNED` | Assign | Citizen, officer, dept head |
+| `CMP_COMPLAINT_ACCEPTED` | Accept assignment | Citizen |
+| `CMP_COMPLAINT_ASSIGNMENT_DECLINED` | Officer decline | Dept head |
+| `CMP_COMPLAINT_REASSIGNMENT_REQUIRED` | `PENDING_REASSIGNMENT` | Dept head, admin |
+| `CMP_COMPLAINT_REJECTED` | Intake reject | Citizen |
+| `CMP_COMPLAINT_WAITING_FOR_CITIZEN` | Clarification request | Citizen |
+| `CMP_COMPLAINT_CLARIFICATION_RECEIVED` | Clarification response | Officer |
+| `CMP_COMPLAINT_RESOLVED` | Resolve | Citizen |
+| `CMP_COMPLAINT_VERIFICATION_REQUEST` | Resolved (await verify) | Citizen |
+| `CMP_COMPLAINT_VERIFIED` | Citizen verified | Citizen, officer |
+| `CMP_COMPLAINT_RESOLUTION_REJECTED` | Citizen rejects resolution | Officer, dept head |
+| `CMP_COMPLAINT_CLOSED` | Close | Citizen, officer |
+| `CMP_COMPLAINT_ARCHIVED` | Archive | Admin |
+| `CMP_COMPLAINT_REOPENED` | Reopen | All stakeholders |
+| `CMP_COMPLAINT_ESCALATED` | Escalate | Officer, dept head, collector |
+| `CMP_COMPLAINT_SLA_BREACH` | SLA breach | Officer, dept head, collector, admin |
+| `CMP_COMPLAINT_FEEDBACK_RECEIVED` | Rating submitted | Officer, admin |
+| `CMP_COMPLAINT_CANCELLED` | Cancel | Citizen |
+
+Template variables: `{{complaintNumber}}`, `{{citizenName}}`, `{{officerName}}`, `{{departmentName}}`, `{{status}}`, `{{dueDate}}`, `{{ulbName}}`, `{{rejectionReason}}`.
 
 ---
 
@@ -875,11 +981,11 @@ On complaint soft-delete: CMP soft-deletes attachment links; DOC documents archi
      referenceType: "COMPLAINT",
      referenceId: complaintId,
      workflowVersionId: publishedVersion.id
-   })
+   })  // on SUBMITTED — WRK owns routing
 5. WRK creates WorkflowInstance + initial WorkflowTask(s)
-6. CMP transitions to ASSIGNED (or SUBMITTED until auto-assign completes)
+6. CMP transitions to ASSIGNED when assignment completes (or PENDING_REASSIGNMENT on decline)
 7. CMP emits ComplaintSubmittedEvent
-8. AUD + NTF wired by application layer (future) or CMP orchestration service
+8. ComplaintOrchestrationService records AUD + queues NTF
 ```
 
 ### CMP Responsibilities vs WRK Responsibilities
@@ -895,6 +1001,32 @@ On complaint soft-delete: CMP soft-deletes attachment links; DOC documents archi
 
 CMP **must not** duplicate `WorkflowStep`, `WorkflowTransition`, or execution logic.
 
+### 10.3 CMP ↔ WRK Status Ownership Matrix
+
+CMP business status and WRK process state are **separate concerns**. Neither module infers the other's state without explicit orchestration.
+
+| Concern | Owner | Source of truth | Consumer |
+|---------|-------|-----------------|----------|
+| Citizen/officer visible lifecycle | **CMP** | `Complaint.status` | Portals, reports, NTF templates |
+| Task queue / approval chain | **WRK** | `WorkflowInstance.status`, `WorkflowTask.status` | Officer workbench (future) |
+| Step definitions & routing | **WRK** | `WorkflowDefinition`, `WorkflowVersion` | Configuration admin |
+| Business SLA deadlines | **CMP** | `ComplaintSla` | Dashboards, escalation |
+| Step-level SLA metadata | **WRK** | `WorkflowStep.sla` | WRK engine (future) |
+| Process audit trail | **WRK** | `WorkflowHistory` | Timeline projection |
+| Compliance audit trail | **AUD** | `AuditEvent` | Compliance export |
+| Status machine history | **CMP** | `ComplaintStatusHistory` | Timeline projection |
+
+**Synchronization rules (mandatory):**
+
+1. `ComplaintLifecycleService` **always** updates `Complaint.status` explicitly — never derive from WRK task state alone
+2. WRK task completion is triggered **after** CMP validates the business transition
+3. Create `WorkflowInstance` on **`SUBMITTED`**, not on assign — WRK owns routing to department
+4. `WAITING_FOR_CITIZEN` (CMP) ↔ `SUSPENDED` (WRK instance) — orchestration service keeps aligned
+5. `CANCELLED` / intake `REJECTED` (CMP) → complete or cancel WRK instance via WRK service
+6. Lookup: `workflowInstanceService.getByReference("COMPLAINT", complaintId)` — no required FK on Complaint
+
+**Drift prevention:** All CMP+WRK coordination flows through `ComplaintOrchestrationService` with integration tests in CMP-011.
+
 ---
 
 ## 11. Domain Events
@@ -905,13 +1037,19 @@ Plain Java records in `com.govos.cmp.event`. Spring publishing deferred to CMP-0
 |-------|-------------------|
 | `ComplaintCreatedEvent` | complaintId, code, citizenUserId, source, occurredAt |
 | `ComplaintSubmittedEvent` | complaintId, code, categoryKey, priority, occurredAt |
+| `ComplaintCancelledEvent` | complaintId, cancelledByUserId, occurredAt |
 | `ComplaintAssignedEvent` | complaintId, departmentId, officeId, officerUserId, assignmentId, occurredAt |
 | `ComplaintAcceptedEvent` | complaintId, officerUserId, assignmentId, occurredAt |
-| `ComplaintRejectedEvent` | complaintId, rejectedByUserId, reasonKey, rejectionType (OFFICER/ADMIN), occurredAt |
+| `ComplaintAssignmentRejectedEvent` | complaintId, assignmentId, rejectedByUserId, reasonKey, occurredAt |
+| `ComplaintRejectedEvent` | complaintId, rejectedByUserId, reasonKey, occurredAt (**intake only**) |
 | `ComplaintStatusChangedEvent` | complaintId, fromStatus, toStatus, changedByUserId, occurredAt |
+| `ComplaintClarificationRequestedEvent` | complaintId, requestedByUserId, occurredAt |
+| `ComplaintClarificationReceivedEvent` | complaintId, respondedByUserId, occurredAt |
 | `ComplaintResolvedEvent` | complaintId, resolutionId, resolutionCodeKey, resolvedByUserId, occurredAt |
 | `ComplaintVerifiedEvent` | complaintId, resolutionId, verifiedByUserId, occurredAt |
+| `ComplaintResolutionRejectedEvent` | complaintId, resolutionId, reason, occurredAt |
 | `ComplaintClosedEvent` | complaintId, closureReasonKey, occurredAt |
+| `ComplaintArchivedEvent` | complaintId, archivedByUserId, occurredAt |
 | `ComplaintReopenedEvent` | complaintId, reopenedByUserId, reason, occurredAt |
 | `ComplaintEscalatedEvent` | complaintId, escalationLevel, reason, escalatedToDepartmentId, occurredAt |
 | `ComplaintCommentAddedEvent` | complaintId, commentId, authorUserId, visibility, occurredAt |
@@ -932,6 +1070,7 @@ Constants in `com.govos.cmp.mdm.CmpMasterDataTypes`:
 | `COMPLAINT_CATEGORY` | Top-level classification | `WATER_SUPPLY`, `ROAD`, `SANITATION`, `ELECTRICITY` |
 | `COMPLAINT_SUB_CATEGORY` | Sub-classification | `PIPE_LEAK`, `POTHOLE`, `GARBAGE_COLLECTION` |
 | `COMPLAINT_TYPE` | Nature of grievance | `SERVICE_REQUEST`, `COMPLAINT`, `SUGGESTION` |
+| `COMPLAINT_ULB` | Urban Local Body | Municipal body for ward routing |
 | `COMPLAINT_PRIORITY` | Priority with SLA metadata | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`, `EMERGENCY` |
 | `COMPLAINT_SOURCE` | Submission source labels | Mirrors `ComplaintSource` enum |
 | `COMPLAINT_CHANNEL` | Delivery channel | `WEB`, `ANDROID`, `COUNTER` |
@@ -1057,7 +1196,9 @@ CMP validators check business rules; Security filter chain checks permissions.
 
 | Sprint | ID | Deliverable |
 |--------|-----|-------------|
-| 1 | **CMP-001** | Architecture blueprint (this document) |
+| 1 | CMP-001 | Architecture blueprint |
+| 1 | CMP-001.5 | Architecture review (`CMP_ARCHITECTURE_REVIEW.md`) |
+| 1 | **CMP-001.6** | **Errata — architecture frozen v1.0 (this document)** |
 | 1 | CMP-002 | Entity classes and enums |
 | 1 | CMP-003 | Flyway `V2_0_0__complaint.sql` |
 | 1 | CMP-004 | Repositories |
@@ -1089,6 +1230,8 @@ CMP validators check business rules; Security filter chain checks permissions.
 
 | Document | Location |
 |----------|----------|
+| Product Architecture Layer | `govos-architecture/docs/backend/product-architecture.md` |
+| CMP-001.5 Architecture Review | `cmp/CMP_ARCHITECTURE_REVIEW.md` |
 | ADR-001 Modular Monolith | `govos-architecture/docs/90-adr/adr-001-modular-monolith.md` |
 | ADR-002 DDD Package Structure | `govos-architecture/docs/90-adr/adr-002-domain-driven-design.md` |
 | Entity Standards | `govos-architecture/docs/06-engineering/entity-standards.md` |
@@ -1105,4 +1248,23 @@ CMP validators check business rules; Security filter chain checks permissions.
 
 ## 18. Summary
 
-CMP is a **single-aggregate-root** bounded context that models citizen grievances end-to-end while delegating identity, organization, documents, notifications, workflow orchestration, audit, and configurable lookups to existing platform modules. The complaint lifecycle is a explicit state machine with fourteen child entity types, append-only history for status/assignment/escalation/merge, and a composed timeline read model. This document is the authoritative blueprint for implementation prompts CMP-002 onwards.
+CMP is a **single-aggregate-root** bounded context that models citizen grievances end-to-end while delegating identity, organization, documents, notifications, workflow orchestration, audit, and configurable lookups to existing platform modules. Version **CMP-001.6** incorporates mandatory amendments from the domain architecture review: `ARCHIVED` retention state, assignment-decline vs intake-rejection semantics, ULB geographic routing, authoritative audit and notification catalogues, WRK ownership matrix, and cross-aggregate duplicate/merge orchestration.
+
+**Architecture v1.0 is frozen.** Implementation proceeds at CMP-002.
+
+---
+
+## 19. Architecture Freeze Policy
+
+From **CMP-001.6** onward:
+
+| Rule | Detail |
+|------|--------|
+| **Frozen** | Aggregate boundaries, entity list, lifecycle states, platform integration contracts |
+| **ADR required** | Any new entity, removed entity, or aggregate split |
+| **Extension allowed** | New MDM types, NTF templates, optional fields with defaults, AI sidecar hooks |
+| **Implementation** | Must match this document; drift corrected in code, not silent doc drift |
+
+Same discipline as GovOS platform modules (MDM, IDM, ORG, WRK, AUD).
+
+---
