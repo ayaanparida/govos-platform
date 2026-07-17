@@ -5,6 +5,8 @@ import com.govos.api.common.exception.EntityNotFoundException;
 import com.govos.api.common.response.ErrorResponse;
 import com.govos.api.common.response.ValidationError;
 import com.govos.api.common.util.RequestContextUtils;
+import com.govos.cmp.exception.ComplaintException;
+import com.govos.cmp.exception.ComplaintNotFoundException;
 import com.govos.idm.exception.RefreshTokenNotFoundException;
 import com.govos.security.exception.AuthenticationFailedException;
 import com.govos.security.exception.InvalidTokenException;
@@ -115,6 +117,30 @@ public class GlobalExceptionHandler {
         return buildResponse(
                 HttpStatus.UNAUTHORIZED,
                 "INVALID_TOKEN",
+                ex.getMessage(),
+                request,
+                null);
+    }
+
+    @ExceptionHandler(ComplaintNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleComplaintNotFound(
+            ComplaintNotFoundException ex,
+            HttpServletRequest request) {
+        return buildResponse(
+                HttpStatus.NOT_FOUND,
+                "NOT_FOUND",
+                ex.getMessage(),
+                request,
+                null);
+    }
+
+    @ExceptionHandler(ComplaintException.class)
+    public ResponseEntity<ErrorResponse> handleComplaintException(
+            ComplaintException ex,
+            HttpServletRequest request) {
+        return buildResponse(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "COMPLAINT_ERROR",
                 ex.getMessage(),
                 request,
                 null);

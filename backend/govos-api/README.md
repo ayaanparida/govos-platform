@@ -61,6 +61,13 @@ com.govos.api.platform
 ├── response       # PlatformInfoResponse, PlatformVersionResponse, ModuleResponse, BuildResponse, HealthResponse
 ├── mapper         # PlatformMapper
 └── config         # PlatformProperties, PlatformConfiguration
+
+com.govos.api.cmp
+├── controller     # ComplaintController
+├── application    # ComplaintApplicationService, ComplaintApplicationServiceImpl
+├── request        # AssignComplaintRequest, RejectComplaintRequest, ...
+├── response       # Reuses com.govos.cmp.dto (see ComplaintApiResponses)
+└── mapper         # ComplaintApiMapper
 ```
 
 ## Authentication API

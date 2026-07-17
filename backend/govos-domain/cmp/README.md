@@ -739,6 +739,29 @@ Stored as `@Enumerated(STRING)`, values `UPPER_SNAKE_CASE`.
 | `REOPENED` | `IN_PROGRESS` | Officer | New resolution cycle; previous resolution `isCurrent = false` |
 | `CLOSED` | `REOPENED` | Admin / Collector | Extraordinary reopen; audit + escalation |
 
+### 6.2.1 Lifecycle Service Implementation (CMP-007.2)
+
+`ComplaintService` orchestrates CMP-007.2 transitions without WRK, NTF, or AUD (deferred to CMP-014+).
+
+| Service method | Transition | Side effects |
+|----------------|------------|--------------|
+| `submit` | `DRAFT` → `SUBMITTED` | `submittedAt`; intake validation |
+| `accept` | `SUBMITTED` → `ACCEPTED` | |
+| `reject` | `SUBMITTED` → `REJECTED` | `rejectionReasonKey` |
+| `assign` | → `ASSIGNED` | Supersedes prior assignment; new `ComplaintAssignment` |
+| `requestReassignment` | `ASSIGNED` → `PENDING_REASSIGNMENT` | Current assignment `REJECTED` |
+| `startProgress` | `ASSIGNED` → `IN_PROGRESS` | |
+| `resolve` | `IN_PROGRESS` → `RESOLVED` | `resolvedByUserId` |
+| `close` | `RESOLVED` → `CLOSED` | `closedAt`, `closureReasonKey` |
+| `archive` | `CLOSED` → `ARCHIVED` | `archivedAt` |
+| `reopen` | `CLOSED` → `REOPENED` | |
+| `markDuplicate` | → `CANCELLED` | `isDuplicate`, `primaryComplaintId`, `ComplaintDuplicate` row |
+| `merge` | merged → `CANCELLED` | `mergedIntoComplaintId`, `ComplaintMerge` row |
+
+Each transition appends `ComplaintStatusHistory`. Illegal transitions throw `ComplaintStateTransitionException`.
+
+Frozen enum note: `DUPLICATE` / `MERGED` are not enum values; terminal duplicate/merge uses `CANCELLED` with `reasonKey` `DUPLICATE` / `MERGED`.
+
 ### 6.3 Invalid Transitions
 
 | Invalid | Reason |
@@ -1025,39 +1048,259 @@ CMP business status and WRK process state are **separate concerns**. Neither mod
 5. `CANCELLED` / intake `REJECTED` (CMP) → complete or cancel WRK instance via WRK service
 6. Lookup: `workflowInstanceService.getByReference("COMPLAINT", complaintId)` — no required FK on Complaint
 
-**Drift prevention:** All CMP+WRK coordination flows through `ComplaintOrchestrationService` with integration tests in CMP-011.
+**Drift prevention:** All CMP+WRK coordination flows through `ComplaintApplicationService` with integration tests in CMP-012.
 
 ---
 
 ## 11. Domain Events
 
-Plain Java records in `com.govos.cmp.event`. Spring publishing deferred to CMP-008+.
+### CMP-008 Domain Events
 
-| Event | Key Payload Fields |
+Immutable Java records in `com.govos.cmp.event` define the complaint domain event **contracts** only. They carry aggregate identity, organization context, the actor who caused the change, the post-change status, and event-specific payload fields.
+
+**Not yet published.** CMP-008 does not wire `ApplicationEventPublisher`, message brokers, listeners, or orchestration. `ComplaintService` and child services remain unchanged.
+
+**Future integrations** (CMP-012+) will consume these contracts for:
+
+| Module | Use |
+|--------|-----|
+| **AUD** | Immutable audit trail of complaint state and child-entity changes |
+| **NTF** | Citizen and officer notifications on lifecycle milestones |
+| **WRK** | Workflow instance start, task completion, and escalation handoffs |
+| **Search** | Index updates for complaint discovery and officer queues |
+| **Analytics** | SLA, volume, resolution-time, and escalation reporting |
+
+**Common payload** (every event):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `complaintId` | UUID | Aggregate root identifier |
+| `complaintCode` | String | Human-readable complaint code |
+| `organizationId` | UUID | Tenant scope |
+| `changedByUserId` | UUID | User who triggered the change |
+| `status` | ComplaintStatus | Post-change complaint status |
+| `occurredAt` | Instant | When the change occurred |
+
+**Implemented event records (CMP-008):**
+
+| Event | Additional Fields |
 |-------|-------------------|
-| `ComplaintCreatedEvent` | complaintId, code, citizenUserId, source, occurredAt |
-| `ComplaintSubmittedEvent` | complaintId, code, categoryKey, priority, occurredAt |
-| `ComplaintCancelledEvent` | complaintId, cancelledByUserId, occurredAt |
-| `ComplaintAssignedEvent` | complaintId, departmentId, officeId, officerUserId, assignmentId, occurredAt |
-| `ComplaintAcceptedEvent` | complaintId, officerUserId, assignmentId, occurredAt |
-| `ComplaintAssignmentRejectedEvent` | complaintId, assignmentId, rejectedByUserId, reasonKey, occurredAt |
-| `ComplaintRejectedEvent` | complaintId, rejectedByUserId, reasonKey, occurredAt (**intake only**) |
-| `ComplaintStatusChangedEvent` | complaintId, fromStatus, toStatus, changedByUserId, occurredAt |
-| `ComplaintClarificationRequestedEvent` | complaintId, requestedByUserId, occurredAt |
-| `ComplaintClarificationReceivedEvent` | complaintId, respondedByUserId, occurredAt |
-| `ComplaintResolvedEvent` | complaintId, resolutionId, resolutionCodeKey, resolvedByUserId, occurredAt |
-| `ComplaintVerifiedEvent` | complaintId, resolutionId, verifiedByUserId, occurredAt |
-| `ComplaintResolutionRejectedEvent` | complaintId, resolutionId, reason, occurredAt |
-| `ComplaintClosedEvent` | complaintId, closureReasonKey, occurredAt |
-| `ComplaintArchivedEvent` | complaintId, archivedByUserId, occurredAt |
-| `ComplaintReopenedEvent` | complaintId, reopenedByUserId, reason, occurredAt |
-| `ComplaintEscalatedEvent` | complaintId, escalationLevel, reason, escalatedToDepartmentId, occurredAt |
-| `ComplaintCommentAddedEvent` | complaintId, commentId, authorUserId, visibility, occurredAt |
-| `ComplaintAttachmentLinkedEvent` | complaintId, attachmentId, documentId, attachmentType, occurredAt |
-| `ComplaintDuplicateLinkedEvent` | primaryComplaintId, duplicateComplaintId, detectedBy, occurredAt |
-| `ComplaintMergedEvent` | survivingComplaintId, mergedComplaintId, mergedByUserId, occurredAt |
-| `ComplaintRatedEvent` | complaintId, rating, ratedByUserId, occurredAt |
-| `ComplaintSlaBreachedEvent` | complaintId, breachType (RESPONSE/RESOLUTION), occurredAt |
+| `ComplaintCreatedEvent` | — |
+| `ComplaintSubmittedEvent` | `submissionChannel` |
+| `ComplaintAcceptedEvent` | `acceptedByUserId` |
+| `ComplaintRejectedEvent` | `rejectionReasonKey` |
+| `ComplaintAssignedEvent` | `officerUserId`, `departmentId`, `officeId`, `assignmentType` |
+| `ComplaintReassignedEvent` | `officerUserId`, `departmentId`, `officeId`, `assignmentType` |
+| `ComplaintProgressStartedEvent` | `officerUserId` |
+| `ComplaintResolvedEvent` | `resolutionReasonKey` |
+| `ComplaintClosedEvent` | `closureReasonKey` |
+| `ComplaintArchivedEvent` | `archiveReasonKey` (nullable) |
+| `ComplaintReopenedEvent` | `reopenReasonKey` |
+| `ComplaintCommentAddedEvent` | `commentId`, `visibility` |
+| `ComplaintAttachmentAddedEvent` | `attachmentId`, `documentId`, `attachmentType` |
+| `ComplaintFeedbackSubmittedEvent` | `feedbackId`, `rating` |
+| `ComplaintEscalatedEvent` | `escalationId`, `level`, `reason` |
+| `ComplaintMarkedDuplicateEvent` | `duplicateId`, `primaryComplaintId` |
+| `ComplaintMergedEvent` | `mergeId`, `survivingComplaintId` |
+| `ComplaintRestoredEvent` | `restoredByUserId` |
+
+### Future event catalog (deferred)
+
+The following events remain in the architecture blueprint but are **not** implemented in CMP-008:
+
+| Event | Notes |
+|-------|-------|
+| `ComplaintCancelledEvent` | Citizen-initiated cancellation |
+| `ComplaintAssignmentRejectedEvent` | Officer declines assignment |
+| `ComplaintStatusChangedEvent` | Generic status transition |
+| `ComplaintClarificationRequestedEvent` | Officer requests clarification |
+| `ComplaintClarificationReceivedEvent` | Citizen responds |
+| `ComplaintVerifiedEvent` | Resolution verification |
+| `ComplaintResolutionRejectedEvent` | Citizen rejects resolution |
+| `ComplaintDuplicateLinkedEvent` | Superseded by `ComplaintMarkedDuplicateEvent` |
+| `ComplaintRatedEvent` | Superseded by `ComplaintFeedbackSubmittedEvent` |
+| `ComplaintSlaBreachedEvent` | SLA breach detection |
+
+---
+
+## 11.1 CMP-009 Testing
+
+Pure unit tests for the complaint service, validator, and mapper layers. No Spring context, no database, no REST.
+
+### Test inventory
+
+| Package | Test classes | Test methods |
+|---------|--------------|--------------|
+| `com.govos.cmp.service.impl` | 8 | 47 |
+| `com.govos.cmp.validator` | 8 | 61 |
+| `com.govos.cmp.mapper` | 9 | 20 |
+| **Total** | **25** | **128** |
+
+Shared fixtures live in `com.govos.cmp.support.CmpTestFixtures`.
+
+### Mockito strategy
+
+- JUnit 5 with `@ExtendWith(MockitoExtension.class)`
+- `@Mock` repositories, validators, and mappers in service tests
+- Real MapStruct implementations (`*MapperImpl`) in mapper tests — no Spring
+- `ArgumentCaptor` for status history and transition verification
+- `verify()` / `verifyNoMoreInteractions()` where interaction contracts matter
+- Negative paths: not found, illegal transitions, id mismatches, duplicate feedback, self duplicate/merge, optimistic locking, validator failures
+
+### JaCoCo quality gates (`govos-domain/pom.xml`)
+
+| Scope | Minimum line coverage |
+|-------|----------------------|
+| `com.govos.cmp.service.impl` | ≥ 90% |
+| `com.govos.cmp.validator` | ≥ 90% |
+| `com.govos.cmp.mapper` | ≥ 90% |
+| Combined service + validator + mapper | ≥ 85% |
+
+Measured coverage after CMP-009 (approximate):
+
+| Layer | Line coverage |
+|-------|---------------|
+| Services | ~100% |
+| Validators | ~93% |
+| Mappers | ~93% |
+| Combined | ~95% |
+
+Gate enforced on `mvn verify` alongside existing MDM, IDM, and AUD service rules.
+
+---
+
+## 11.2 CMP-010 REST API
+
+Complaint module exposed via `com.govos.api.cmp` in `govos-api`. Controllers delegate to `ComplaintApplicationService` (CMP-011); no business logic in the API layer.
+
+### Package structure
+
+```
+com.govos.api.cmp
+├── controller/    ComplaintController
+├── application/   ComplaintApplicationService, ComplaintApplicationServiceImpl
+├── request/       API wrappers (actor IDs from JWT, not client)
+├── response/      Reuses domain DTOs from com.govos.cmp.dto
+└── mapper/        ComplaintApiMapper
+```
+
+### Security model
+
+- All endpoints require **JWT Bearer** authentication (`bearerAuth` in OpenAPI).
+- Actor user IDs (`changedByUserId`, `assignedByUserId`, `authorUserId`, etc.) are taken from `@CurrentUser JwtPrincipal` — never from the client.
+- No role-based authorization yet; authenticated access only.
+
+### Endpoint summary
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/complaints` | Create complaint (201) |
+| `PUT` | `/api/v1/complaints/{id}` | Update complaint |
+| `GET` | `/api/v1/complaints/{id}` | Get by id |
+| `GET` | `/api/v1/complaints/code/{code}` | Get by code |
+| `GET` | `/api/v1/complaints` | List (paginated) |
+| `DELETE` | `/api/v1/complaints/{id}` | Soft delete (204) |
+| `POST` | `/api/v1/complaints/{id}/restore` | Restore deleted |
+| `POST` | `/api/v1/complaints/{id}/submit` | Submit |
+| `POST` | `/api/v1/complaints/{id}/accept` | Accept |
+| `POST` | `/api/v1/complaints/{id}/reject` | Reject at intake |
+| `POST` | `/api/v1/complaints/{id}/assign` | Assign officer |
+| `POST` | `/api/v1/complaints/{id}/start-progress` | Start progress |
+| `POST` | `/api/v1/complaints/{id}/resolve` | Resolve |
+| `POST` | `/api/v1/complaints/{id}/close` | Close |
+| `POST` | `/api/v1/complaints/{id}/archive` | Archive |
+| `POST` | `/api/v1/complaints/{id}/reopen` | Reopen |
+| `POST` | `/api/v1/complaints/{id}/request-reassignment` | Request reassignment |
+| `POST` | `/api/v1/complaints/{id}/duplicate` | Mark duplicate |
+| `POST` | `/api/v1/complaints/merge` | Merge complaints |
+| `POST` | `/api/v1/complaints/{id}/comments` | Add comment (201) |
+| `GET` | `/api/v1/complaints/{id}/comments` | List comments |
+| `POST` | `/api/v1/complaints/{id}/attachments` | Add attachment (201) |
+| `GET` | `/api/v1/complaints/{id}/attachments` | List attachments |
+| `POST` | `/api/v1/complaints/{id}/feedback` | Submit feedback (201) |
+| `PUT` | `/api/v1/complaints/{id}/feedback` | Update feedback |
+| `GET` | `/api/v1/complaints/{id}/feedback` | Get feedback |
+| `GET` | `/api/v1/complaints/{id}/assignments` | List assignments |
+| `POST` | `/api/v1/complaints/{id}/escalations` | Create escalation (201) |
+| `GET` | `/api/v1/complaints/{id}/escalations` | List escalations |
+| `GET` | `/api/v1/complaints/{id}/duplicates` | List duplicate links |
+| `GET` | `/api/v1/complaints/{id}/merges` | List merge records |
+
+### Response envelope
+
+Success: `ApiResponse<T>` with `success`, `data`, `timestamp`, `requestId`.
+
+Errors: `ErrorResponse` via `GlobalExceptionHandler` — `404` for `ComplaintNotFoundException`, `422` for other `ComplaintException` subclasses, `400` for validation.
+
+### OpenAPI
+
+- Tag: **Complaint Management**
+- `@Operation`, `@ApiResponses`, `@Schema` on request wrappers
+- Swagger UI: `/swagger-ui.html` (springdoc)
+
+### Controller tests
+
+8 MockMvc slice tests in `ComplaintControllerTest` (standalone setup, mocked application service). Covers 201, 200, 204, 400, 404, 422.
+
+---
+
+## 11.3 CMP-011 Application Layer
+
+Introduces `ComplaintApplicationService` in `com.govos.api.cmp.application` as the orchestration boundary between the REST API and domain services.
+
+### Layering
+
+```
+Presentation (Controller)
+        ↓
+Application (ComplaintApplicationService)
+        ↓
+Domain (ComplaintService, child entity services)
+        ↓
+Infrastructure (JPA repositories, Flyway)
+```
+
+| Layer | Responsibility | CMP artifact |
+|-------|----------------|--------------|
+| **Presentation** | HTTP mapping, JWT actor resolution, structural validation, OpenAPI | `ComplaintController`, `ComplaintApiMapper`, API request wrappers |
+| **Application** | Orchestration only — no business rules, no persistence | `ComplaintApplicationService`, `ComplaintApplicationServiceImpl` |
+| **Domain** | Business logic, validators, lifecycle, aggregate rules | `com.govos.cmp.service.*` |
+| **Infrastructure** | Persistence, migrations | `com.govos.cmp.repository.*`, Flyway |
+
+### Application service rules
+
+- **Delegates to:** `ComplaintService`, `ComplaintAssignmentService`, `ComplaintCommentService`, `ComplaintAttachmentService`, `ComplaintFeedbackService`, `ComplaintEscalationService`, `ComplaintDuplicateService`, `ComplaintMergeService`
+- **No** Workflow, Notification, Audit, or Search calls in this sprint
+- **No** business validation, EntityManager, or direct repository access
+- `@Transactional` on write operations only (orchestration that mutates state)
+- Constructor injection; `@Service` on implementation
+
+### Orchestration example
+
+Feedback update resolves the feedback record id before calling the domain update service — logic that belongs in the application layer, not the controller:
+
+```
+Controller → applicationService.updateFeedback(complaintId, request)
+           → feedbackService.getFeedback(complaintId)
+           → feedbackService.updateFeedback(feedbackId, request)
+```
+
+### Future integration points
+
+Controllers remain unchanged when cross-module services are added:
+
+| Sprint | Integration | Injected into |
+|--------|-------------|---------------|
+| CMP-012 | Workflow (`WorkflowService`) | `ComplaintApplicationServiceImpl` |
+| CMP-013 | Notification (`NotificationService`) | `ComplaintApplicationServiceImpl` |
+| CMP-014 | Audit (`AuditService`) | `ComplaintApplicationServiceImpl` |
+| CMP-015 | Search (`SearchService`) | `ComplaintApplicationServiceImpl` |
+
+Domain services (`ComplaintService` et al.) stay pure — integrations hook only at the application layer.
+
+### Application layer tests
+
+10 unit tests in `ComplaintApplicationServiceTest` — mocked domain services, verifies delegation and feedback-update orchestration only.
 
 ---
 
@@ -1205,14 +1448,20 @@ CMP validators check business rules; Security filter chain checks permissions.
 | 1 | CMP-005 | DTOs and MapStruct mappers |
 | 1 | CMP-006 | Validators and exceptions |
 | 1 | CMP-007 | Core services (Complaint, Lifecycle, Assignment) |
-| 1 | CMP-008 | Domain events and orchestration service |
-| 1 | CMP-009 | Resolution, SLA, Escalation, Comment, Attachment services |
-| 1 | CMP-010 | Duplicate, Merge, Rating, Timeline projection |
-| 2 | CMP-011 | REST controllers in `govos-api` |
-| 2 | CMP-012 | MDM seed data for complaint types |
-| 2 | CMP-013 | NTF template seed data |
-| 2 | CMP-014 | WRK complaint workflow definition seed |
-| 2 | CMP-015 | Angular citizen/officer complaint features |
+| 1 | CMP-007.1 | Core CRUD services (`ComplaintService` and child entity services) |
+| 1 | **CMP-007.2** | **Complaint lifecycle orchestration in `ComplaintService` (this sprint)** |
+| 1 | **CMP-008** | **Domain event records — immutable contracts in `com.govos.cmp.event` (this sprint)** |
+| 1 | **CMP-009** | **Unit tests and JaCoCo quality gates for services, validators, mappers (this sprint)** |
+| 2 | **CMP-010** | **REST API — `ComplaintController` in `govos-api`** |
+| 2 | **CMP-011** | **Application Service — `ComplaintApplicationService` orchestration layer (this sprint)** |
+| 2 | CMP-012 | Workflow integration (`WorkflowService`) |
+| 2 | CMP-013 | Notification integration (`NotificationService`) |
+| 2 | CMP-014 | Audit integration (`AuditService`) |
+| 2 | CMP-015 | Search integration (`SearchService`) |
+| 2 | CMP-016 | MDM seed data for complaint types |
+| 2 | CMP-017 | NTF template seed data |
+| 2 | CMP-018 | WRK complaint workflow definition seed |
+| 2 | CMP-019 | Angular citizen/officer complaint features |
 
 ### Future (Out of Scope)
 
