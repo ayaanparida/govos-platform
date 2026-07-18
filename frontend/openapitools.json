@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/@openapitools/openapi-generator-cli/config.schema.json",
+  "spaces": 2,
+  "generator-cli": {
+    "version": "7.12.0",
+    "generators": {
+      "govos-api": {
+        "generatorName": "typescript-angular",
+        "inputSpec": "openapi/govos-api.yaml",
+        "output": "projects/shared-api/src/lib/generated",
+        "additionalProperties": {
+          "ngVersion": "20.0.0",
+          "providedInRoot": true,
+          "supportsES6": true,
+          "withInterfaces": true,
+          "stringEnums": true,
+          "serviceSuffix": "ApiService",
+          "modelPropertyNaming": "original"
+        }
+      }
+    }
+  }
+}

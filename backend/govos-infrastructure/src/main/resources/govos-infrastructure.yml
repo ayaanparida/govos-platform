@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/govos
+    username: govos
+    password: govos_dev_password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: GovosHikariPool
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      auto-commit: false
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        default_schema: govos
+        format_sql: true
+        generate_statistics: false
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    schemas: govos
+    default-schema: govos
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    table: flyway_schema_history

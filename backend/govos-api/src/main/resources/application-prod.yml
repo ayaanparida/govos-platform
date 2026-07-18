@@ -3,6 +3,18 @@ spring:
     activate:
       on-profile: prod
 
+govos:
+  search:
+    semantic:
+      vector-store: opensearch
+      embedding-cache:
+        enabled: true
+    cache:
+      warm-on-startup: true
+    pool:
+      max-connections: 100
+      max-connections-per-route: 50
+
 logging:
   level:
     root: WARN
@@ -12,7 +24,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus,metrics
+  metrics:
+    tags:
+      application: ${spring.application.name}
   endpoint:
     health:
       show-details: never

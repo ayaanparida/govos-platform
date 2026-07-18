@@ -2,6 +2,7 @@ spring:
   config:
     activate:
       on-profile: local
+    import: optional:classpath:govos-infrastructure.yml
 
 logging:
   level:

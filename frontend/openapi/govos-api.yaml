@@ -1,0 +1,389 @@
+openapi: 3.0.3
+info:
+  title: GovOS API
+  version: 0.1.0
+  description: GovOS Platform REST API
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseLoginResponse'
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refresh
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseLoginResponse'
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseLogoutResponse'
+  /api/v1/auth/me:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseCurrentUserResponse'
+  /api/v1/platform/info:
+    get:
+      tags: [Platform]
+      operationId: getPlatformInfo
+      responses:
+        '200':
+          description: Platform info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponsePlatformInfoResponse'
+  /api/v1/platform/version:
+    get:
+      tags: [Platform]
+      operationId: getPlatformVersion
+      responses:
+        '200':
+          description: Platform version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponsePlatformVersionResponse'
+  /api/v1/platform/modules:
+    get:
+      tags: [Platform]
+      operationId: getPlatformModules
+      responses:
+        '200':
+          description: Platform modules
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseModuleResponseList'
+  /api/v1/platform/build:
+    get:
+      tags: [Platform]
+      operationId: getPlatformBuild
+      responses:
+        '200':
+          description: Build metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseBuildResponse'
+  /api/v1/platform/health:
+    get:
+      tags: [Platform]
+      operationId: getPlatformHealth
+      responses:
+        '200':
+          description: Platform health
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseHealthResponse'
+components:
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    LogoutRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    AuthUserResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          format: int64
+        tokenType:
+          type: string
+        user:
+          $ref: '#/components/schemas/AuthUserResponse'
+    LogoutResponse:
+      type: object
+      properties:
+        message:
+          type: string
+    CurrentUserResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+        userId:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    PlatformInfoResponse:
+      type: object
+      properties:
+        applicationName:
+          type: string
+        version:
+          type: string
+        environment:
+          type: string
+        javaVersion:
+          type: string
+        springBootVersion:
+          type: string
+        database:
+          type: string
+        flywayVersion:
+          type: string
+        buildTime:
+          type: string
+        gitCommit:
+          type: string
+    PlatformVersionResponse:
+      type: object
+      properties:
+        version:
+          type: string
+        release:
+          type: string
+        releaseDate:
+          type: string
+    ModuleResponse:
+      type: object
+      properties:
+        moduleName:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+    BuildResponse:
+      type: object
+      properties:
+        artifact:
+          type: string
+        buildNumber:
+          type: string
+        gitBranch:
+          type: string
+        gitCommit:
+          type: string
+        buildTimestamp:
+          type: string
+    HealthResponse:
+      type: object
+      properties:
+        database:
+          type: string
+        redis:
+          type: string
+        minio:
+          type: string
+        opensearch:
+          type: string
+        disk:
+          type: string
+        memory:
+          type: string
+        uptime:
+          type: string
+    ApiResponseLoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/LoginResponse'
+        message:
+          type: string
+        timestamp:
+          type: string
+        requestId:
+          type: string
+    ApiResponseLogoutResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/LogoutResponse'
+        message:
+          type: string
+        timestamp:
+          type: string
+        requestId:
+          type: string
+    ApiResponseCurrentUserResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/CurrentUserResponse'
+        message:
+          type: string
+        timestamp:
+          type: string
+        requestId:
+          type: string
+    ApiResponsePlatformInfoResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/PlatformInfoResponse'
+        message:
+          type: string
+        timestamp:
+          type: string
+        requestId:
+          type: string
+    ApiResponsePlatformVersionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/PlatformVersionResponse'
+        message:
+          type: string
+        timestamp:
+          type: string
+        requestId:
+          type: string
+    ApiResponseModuleResponseList:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModuleResponse'
+        message:
+          type: string
+        timestamp:
+          type: string
+        requestId:
+          type: string
+    ApiResponseBuildResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/BuildResponse'
+        message:
+          type: string
+        timestamp:
+          type: string
+        requestId:
+          type: string
+    ApiResponseHealthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/HealthResponse'
+        message:
+          type: string
+        timestamp:
+          type: string
+        requestId:
+          type: string
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - bearerAuth: []

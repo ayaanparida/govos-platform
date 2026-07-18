@@ -1,0 +1,91 @@
+:root {
+  --govos-toolbar-height: 64px;
+  --govos-sidebar-width: 280px;
+  --govos-content-bg: #f4f6f9;
+  --govos-surface: #ffffff;
+  --govos-border: #d8dee9;
+  --govos-text: #1f2937;
+  --govos-muted: #64748b;
+  --govos-primary: #1f3a5f;
+  --govos-accent: #c8922a;
+}
+
+:root[data-theme='dark'] {
+  --govos-content-bg: #0f172a;
+  --govos-surface: #111827;
+  --govos-border: #334155;
+  --govos-text: #e2e8f0;
+  --govos-muted: #94a3b8;
+  --govos-primary: #93c5fd;
+  --govos-accent: #fbbf24;
+}
+
+body.govos-theme-light,
+body.govos-theme-dark {
+  margin: 0;
+  background: var(--govos-content-bg);
+  color: var(--govos-text);
+  font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.govos-shell {
+  min-height: 100vh;
+  background: var(--govos-content-bg);
+}
+
+.govos-content {
+  padding: 1.5rem;
+}
+
+.govos-page-title {
+  margin: 0 0 1rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.govos-card-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.govos-card {
+  background: var(--govos-surface);
+  border: 1px solid var(--govos-border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+}
+
+.govos-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  color: var(--govos-muted);
+  font-weight: 600;
+}
+
+.govos-card p,
+.govos-card li {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.govos-status-up {
+  color: #15803d;
+  font-weight: 700;
+}
+
+.govos-status-down,
+.govos-status-unknown {
+  color: #b45309;
+  font-weight: 700;
+}
+
+@media (max-width: 960px) {
+  :root {
+    --govos-sidebar-width: 240px;
+  }
+
+  .govos-content {
+    padding: 1rem;
+  }
+}
