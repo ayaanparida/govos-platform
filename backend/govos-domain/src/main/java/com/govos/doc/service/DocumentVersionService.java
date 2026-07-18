@@ -1,23 +1,24 @@
 package com.govos.doc.service;
 
-import com.govos.doc.dto.CreateDocumentVersionRequest;
-import com.govos.doc.dto.DocumentVersionDto;
-import com.govos.doc.dto.UpdateDocumentVersionRequest;
+import com.govos.doc.dto.version.CreateDocumentVersionRequest;
+import com.govos.doc.entity.DocumentVersion;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.UUID;
 
 public interface DocumentVersionService {
 
-    DocumentVersionDto getById(UUID id);
+    DocumentVersion createVersion(CreateDocumentVersionRequest request);
 
-    List<DocumentVersionDto> getByDocumentId(UUID documentId);
+    DocumentVersion activateVersion(UUID versionId);
 
-    DocumentVersionDto getByDocumentIdAndVersionNumber(UUID documentId, Integer versionNumber);
+    DocumentVersion getLatestVersion(UUID documentId);
 
-    DocumentVersionDto create(CreateDocumentVersionRequest request);
+    DocumentVersion findVersion(UUID versionId);
 
-    DocumentVersionDto update(UUID id, UpdateDocumentVersionRequest request);
+    List<DocumentVersion> listVersions(UUID documentId);
 
-    void softDelete(UUID id);
+    Page<DocumentVersion> listVersions(UUID documentId, Pageable pageable);
 }

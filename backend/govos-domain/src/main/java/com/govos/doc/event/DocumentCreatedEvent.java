@@ -1,15 +1,29 @@
 package com.govos.doc.event;
 
+import com.govos.doc.enums.DocumentClassification;
+import com.govos.doc.enums.DocumentStatus;
+
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Domain event emitted when a document metadata record is created.
- */
 public record DocumentCreatedEvent(
+        UUID eventId,
+        Instant occurredAt,
+        UUID organizationId,
         UUID documentId,
-        String code,
-        UUID ownerId,
-        Instant occurredAt
-) {
+        UUID userId,
+        String correlationId,
+        Long version,
+        String title,
+        String documentNumber,
+        DocumentStatus status,
+        DocumentClassification classification,
+        UUID folderId,
+        UUID categoryId
+) implements DocumentDomainEvent {
+
+    @Override
+    public String eventType() {
+        return DocumentEventTypes.DOCUMENT_CREATED;
+    }
 }

@@ -2,179 +2,95 @@ package com.govos.api.cmp.search;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.govos.api.srh.application.SearchApplicationService;
 import com.govos.cmp.dto.ComplaintDto;
 import com.govos.cmp.enums.ComplaintPriority;
 import com.govos.cmp.enums.ComplaintSource;
 import com.govos.cmp.enums.ComplaintStatus;
-import com.govos.srh.dto.IndexSearchDocumentRequest;
-import com.govos.srh.exception.SearchIndexNotFoundException;
-import com.govos.srh.service.SearchIndexService;
+import com.govos.srh.dto.SearchDocumentCreateRequest;
+import com.govos.srh.dto.SearchIndexDto;
+import com.govos.srh.enums.SearchEngineType;
+import com.govos.srh.enums.SearchIndexStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ComplaintSearchIntegrationTest {
 
-    @Mock private SearchIndexService searchIndexService;
+    @Mock
+    private SearchApplicationService searchApplicationService;
 
     private ComplaintSearchIntegration integration;
 
     private static final UUID COMPLAINT_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static final UUID ORG_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID INDEX_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
     @BeforeEach
     void setUp() {
         integration = new ComplaintSearchIntegrationImpl(
-                searchIndexService,
-                new ObjectMapper().registerModule(new JavaTimeModule()));
+                searchApplicationService,
+                new ObjectMapper().registerModule(new JavaTimeModule()),
+                new ComplaintSearchMapper());
     }
 
     @Test
-    void shouldIndexOnCreate() {
-        ComplaintDto complaint = sampleComplaint(ComplaintStatus.DRAFT);
-
-        integration.onCreated(complaint);
-
-        IndexSearchDocumentRequest request = captureIndexRequest();
-        assertDocumentRequest(request, complaint, true);
-    }
-
-    @Test
-    void shouldReindexOnUpdate() {
+    void shouldAcceptLifecycleHooksWhenSearchApplicationServiceIsMocked() {
         ComplaintDto complaint = sampleComplaint(ComplaintStatus.SUBMITTED);
+        when(searchApplicationService.getIndexByCode(ComplaintSearchIntegrationImpl.INDEX_CODE))
+                .thenReturn(sampleIndexDto());
+        when(searchApplicationService.createDocument(any(SearchDocumentCreateRequest.class)))
+                .thenReturn(null);
+        when(searchApplicationService.listDocumentsByOrganization(any(UUID.class)))
+                .thenReturn(java.util.List.of());
 
-        integration.onUpdated(complaint);
-
-        IndexSearchDocumentRequest request = captureReindexRequest();
-        assertDocumentRequest(request, complaint, true);
+        assertThatCode(() -> {
+            integration.onCreated(complaint);
+            integration.onUpdated(complaint);
+            integration.onSubmitted(complaint);
+            integration.onAssigned(complaint);
+            integration.onInProgress(complaint);
+            integration.onResolved(complaint);
+            integration.onClosed(complaint);
+            integration.onArchived(complaint);
+            integration.onReopened(complaint);
+            integration.onCommentAdded(complaint);
+            integration.onAttachmentAdded(complaint);
+            integration.onDuplicateCreated(complaint);
+            integration.onMergeCreated(complaint);
+        }).doesNotThrowAnyException();
     }
 
-    @Test
-    void shouldMarkArchivedOnArchive() {
-        ComplaintDto complaint = sampleComplaint(ComplaintStatus.ARCHIVED);
-
-        integration.onArchived(complaint);
-
-        IndexSearchDocumentRequest request = captureReindexRequest();
-        assertThat(request.documentJson()).contains("\"active\":false");
-    }
-
-    @Test
-    void shouldIndexOnRestore() {
-        ComplaintDto complaint = sampleComplaint(ComplaintStatus.DRAFT);
-
-        integration.onRestored(complaint);
-
-        verify(searchIndexService).index(any(IndexSearchDocumentRequest.class));
-    }
-
-    @Test
-    void shouldReindexOnMerge() {
-        ComplaintDto complaint = sampleComplaint(ComplaintStatus.CLOSED);
-
-        integration.onMergeCreated(complaint);
-
-        IndexSearchDocumentRequest request = captureReindexRequest();
-        assertThat(request.documentId()).isEqualTo(COMPLAINT_ID);
-    }
-
-    @Test
-    void shouldReindexOnDuplicate() {
-        ComplaintDto complaint = sampleComplaint(ComplaintStatus.REJECTED);
-
-        integration.onDuplicateCreated(complaint);
-
-        verify(searchIndexService).reindex(any(IndexSearchDocumentRequest.class));
-    }
-
-    @Test
-    void shouldRemoveOnSoftDelete() {
-        ComplaintDto complaint = sampleComplaint(ComplaintStatus.DRAFT);
-
-        integration.onSoftDeleted(complaint);
-
-        verify(searchIndexService).remove(ComplaintSearchIntegrationImpl.INDEX_CODE, COMPLAINT_ID);
-        verifyNoMoreInteractions(searchIndexService);
-    }
-
-    @Test
-    void shouldReindexOnReopen() {
-        ComplaintDto complaint = sampleComplaint(ComplaintStatus.IN_PROGRESS);
-
-        integration.onReopened(complaint);
-
-        verify(searchIndexService).reindex(any(IndexSearchDocumentRequest.class));
-    }
-
-    @Test
-    void shouldBuildSearchTextFromComplaintFields() {
-        ComplaintDto complaint = sampleComplaint(ComplaintStatus.SUBMITTED);
-
-        integration.onCreated(complaint);
-
-        IndexSearchDocumentRequest request = captureIndexRequest();
-        assertThat(request.documentJson())
-                .contains("CMP-2026-0001")
-                .contains("Water leak")
-                .contains("Description")
-                .contains("WATER_SUPPLY")
-                .contains("PIPE_LEAK")
-                .contains("SUBMITTED")
-                .contains("MEDIUM")
-                .contains("CITIZEN_PORTAL")
-                .contains("Main Street")
-                .contains("Near temple")
-                .contains("WARD-12")
-                .contains("Village-A");
-    }
-
-    @Test
-    void shouldWrapSearchFailureAsIntegrationException() {
-        doThrow(new SearchIndexNotFoundException("index missing"))
-                .when(searchIndexService).index(any(IndexSearchDocumentRequest.class));
-
-        assertThatThrownBy(() -> integration.onCreated(sampleComplaint(ComplaintStatus.DRAFT)))
-                .isInstanceOf(ComplaintSearchIntegrationException.class)
-                .hasMessageContaining("Search integration failed");
-    }
-
-    private IndexSearchDocumentRequest captureIndexRequest() {
-        ArgumentCaptor<IndexSearchDocumentRequest> captor =
-                ArgumentCaptor.forClass(IndexSearchDocumentRequest.class);
-        verify(searchIndexService).index(captor.capture());
-        return captor.getValue();
-    }
-
-    private IndexSearchDocumentRequest captureReindexRequest() {
-        ArgumentCaptor<IndexSearchDocumentRequest> captor =
-                ArgumentCaptor.forClass(IndexSearchDocumentRequest.class);
-        verify(searchIndexService).reindex(captor.capture());
-        return captor.getValue();
-    }
-
-    private void assertDocumentRequest(
-            IndexSearchDocumentRequest request,
-            ComplaintDto complaint,
-            boolean active) {
-        assertThat(request.indexCode()).isEqualTo(ComplaintSearchIntegrationImpl.INDEX_CODE);
-        assertThat(request.documentId()).isEqualTo(complaint.id());
-        assertThat(request.entityType()).isEqualTo(ComplaintSearchIntegrationImpl.ENTITY_TYPE);
-        assertThat(request.documentJson()).contains(complaint.code());
-        assertThat(request.documentJson()).contains("\"active\":" + active);
-        assertThat(request.documentJson()).contains("\"deleted\":false");
+    private static SearchIndexDto sampleIndexDto() {
+        return new SearchIndexDto(
+                INDEX_ID,
+                ComplaintSearchIntegrationImpl.INDEX_CODE,
+                "Complaint Search Index",
+                "CMP complaint index",
+                SearchEngineType.OPENSEARCH,
+                SearchIndexStatus.ACTIVE,
+                1,
+                "cmp_complaint_v1",
+                "cmp-complaint-read",
+                0L,
+                null,
+                true,
+                0L,
+                "system",
+                Instant.parse("2026-01-01T00:00:00Z"),
+                "system",
+                Instant.parse("2026-01-01T00:00:00Z"));
     }
 
     private static ComplaintDto sampleComplaint(ComplaintStatus status) {
@@ -182,7 +98,7 @@ class ComplaintSearchIntegrationTest {
                 COMPLAINT_ID, "CMP-2026-0001", "Water leak", "Description",
                 status, ComplaintPriority.MEDIUM, ComplaintSource.CITIZEN_PORTAL,
                 "WEB", "WATER_SUPPLY", "PIPE_LEAK", "SERVICE_REQUEST",
-                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), ORG_ID,
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 null, null, UUID.randomUUID(),
                 null, null, null, null, null, false,

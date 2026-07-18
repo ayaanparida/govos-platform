@@ -1,26 +1,22 @@
 package com.govos.doc.service;
 
-import com.govos.doc.dto.CreateStorageProviderRequest;
-import com.govos.doc.dto.StorageProviderDto;
-import com.govos.doc.dto.UpdateStorageProviderRequest;
-import com.govos.doc.entity.StorageProviderType;
+import com.govos.doc.dto.storage.CreateStorageProviderRequest;
+import com.govos.doc.dto.storage.UpdateStorageProviderRequest;
+import com.govos.doc.entity.StorageProvider;
 
-import java.util.List;
 import java.util.UUID;
 
 public interface StorageProviderService {
 
-    StorageProviderDto getById(UUID id);
+    StorageProvider createProvider(CreateStorageProviderRequest request);
 
-    StorageProviderDto getByCode(String code);
+    StorageProvider updateProvider(UUID id, UpdateStorageProviderRequest request);
 
-    List<StorageProviderDto> getAll();
+    StorageProvider activateProvider(UUID id);
 
-    List<StorageProviderDto> getByProviderType(StorageProviderType providerType);
+    StorageProvider deactivateProvider(UUID id);
 
-    StorageProviderDto create(CreateStorageProviderRequest request);
+    StorageProvider setDefaultProvider(UUID id);
 
-    StorageProviderDto update(UUID id, UpdateStorageProviderRequest request);
-
-    void softDelete(UUID id);
+    StorageProvider findProvider(UUID id);
 }

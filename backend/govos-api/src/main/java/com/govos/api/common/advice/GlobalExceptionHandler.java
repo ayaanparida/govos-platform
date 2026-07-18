@@ -7,6 +7,8 @@ import com.govos.api.common.response.ValidationError;
 import com.govos.api.common.util.RequestContextUtils;
 import com.govos.cmp.exception.ComplaintException;
 import com.govos.cmp.exception.ComplaintNotFoundException;
+import com.govos.srh.exception.SearchException;
+import com.govos.srh.exception.SearchIndexNotFoundException;
 import com.govos.idm.exception.RefreshTokenNotFoundException;
 import com.govos.security.exception.AuthenticationFailedException;
 import com.govos.security.exception.InvalidTokenException;
@@ -141,6 +143,30 @@ public class GlobalExceptionHandler {
         return buildResponse(
                 HttpStatus.UNPROCESSABLE_ENTITY,
                 "COMPLAINT_ERROR",
+                ex.getMessage(),
+                request,
+                null);
+    }
+
+    @ExceptionHandler(SearchIndexNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleSearchIndexNotFound(
+            SearchIndexNotFoundException ex,
+            HttpServletRequest request) {
+        return buildResponse(
+                HttpStatus.NOT_FOUND,
+                "NOT_FOUND",
+                ex.getMessage(),
+                request,
+                null);
+    }
+
+    @ExceptionHandler(SearchException.class)
+    public ResponseEntity<ErrorResponse> handleSearchException(
+            SearchException ex,
+            HttpServletRequest request) {
+        return buildResponse(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "SEARCH_ERROR",
                 ex.getMessage(),
                 request,
                 null);

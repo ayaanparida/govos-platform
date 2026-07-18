@@ -13,13 +13,12 @@ public interface FolderRepository extends JpaRepository<Folder, UUID> {
 
     Optional<Folder> findByIdAndDeletedFalse(UUID id);
 
-    Optional<Folder> findByCodeAndDeletedFalse(String code);
+    List<Folder> findByOrganizationIdAndDeletedFalse(UUID organizationId);
 
-    List<Folder> findByDeletedFalseOrderByNameAsc();
+    List<Folder> findByParentFolder_IdAndDeletedFalse(UUID parentFolderId);
 
-    List<Folder> findByOwner_IdAndDeletedFalseOrderByNameAsc(UUID ownerId);
+    Optional<Folder> findByPathMetadata_MaterializedPathAndDeletedFalse(String path);
 
-    List<Folder> findByParentFolder_IdAndDeletedFalseOrderByNameAsc(UUID parentFolderId);
-
-    boolean existsByCodeAndDeletedFalse(String code);
+    boolean existsByOrganizationIdAndPathMetadata_MaterializedPathAndDeletedFalse(
+            UUID organizationId, String path);
 }

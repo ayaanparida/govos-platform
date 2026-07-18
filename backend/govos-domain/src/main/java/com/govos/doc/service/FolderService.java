@@ -1,27 +1,22 @@
 package com.govos.doc.service;
 
-import com.govos.doc.dto.CreateFolderRequest;
-import com.govos.doc.dto.FolderDto;
-import com.govos.doc.dto.UpdateFolderRequest;
+import com.govos.doc.dto.folder.CreateFolderRequest;
+import com.govos.doc.dto.folder.UpdateFolderRequest;
+import com.govos.doc.entity.Folder;
 
-import java.util.List;
 import java.util.UUID;
 
 public interface FolderService {
 
-    FolderDto getById(UUID id);
+    Folder createFolder(CreateFolderRequest request);
 
-    FolderDto getByCode(String code);
+    Folder renameFolder(UUID id, String name, Long version);
 
-    List<FolderDto> getAll();
+    Folder moveFolder(UUID id, UUID parentFolderId, Long version);
 
-    List<FolderDto> getByOwnerId(UUID ownerId);
+    void deleteFolder(UUID id);
 
-    List<FolderDto> getByParentFolderId(UUID parentFolderId);
+    Folder restoreFolder(UUID id);
 
-    FolderDto create(CreateFolderRequest request);
-
-    FolderDto update(UUID id, UpdateFolderRequest request);
-
-    void softDelete(UUID id);
+    Folder findFolder(UUID id);
 }

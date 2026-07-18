@@ -8,7 +8,7 @@ public class DocumentNotFoundException extends DocException {
         super("Document not found with id: " + id);
     }
 
-    public DocumentNotFoundException(String code) {
-        super("Document not found with code: " + code);
+    public DocumentNotFoundException(UUID organizationId, String documentNumber) {
+        super("Document not found with number " + documentNumber + " in organization " + organizationId);
     }
 }

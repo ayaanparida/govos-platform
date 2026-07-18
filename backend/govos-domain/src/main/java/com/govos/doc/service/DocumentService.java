@@ -1,30 +1,37 @@
 package com.govos.doc.service;
 
-import com.govos.doc.dto.CreateDocumentRequest;
-import com.govos.doc.dto.DocumentDto;
-import com.govos.doc.dto.UpdateDocumentRequest;
-import com.govos.doc.entity.DocumentStatus;
+import com.govos.doc.dto.document.CreateDocumentRequest;
+import com.govos.doc.dto.document.UpdateDocumentRequest;
+import com.govos.doc.entity.Document;
+import com.govos.doc.enums.DocumentClassification;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
-import java.util.List;
 import java.util.UUID;
 
 public interface DocumentService {
 
-    DocumentDto getById(UUID id);
+    Document createDocument(CreateDocumentRequest request);
 
-    DocumentDto getByCode(String code);
+    Document updateDocument(UUID id, UpdateDocumentRequest request);
 
-    List<DocumentDto> getAll();
+    void deleteDocument(UUID id);
 
-    List<DocumentDto> getByFolderId(UUID folderId);
+    Document restoreDocument(UUID id);
 
-    List<DocumentDto> getByOwnerId(UUID ownerId);
+    Document archiveDocument(UUID id);
 
-    List<DocumentDto> getByStatus(DocumentStatus status);
+    Document changeClassification(UUID id, DocumentClassification classification);
 
-    DocumentDto create(CreateDocumentRequest request);
+    Document moveDocument(UUID id, UUID folderId);
 
-    DocumentDto update(UUID id, UpdateDocumentRequest request);
+    Document renameDocument(UUID id, String title);
 
-    void softDelete(UUID id);
+    Document activateVersion(UUID documentId, UUID versionId);
+
+    Document findById(UUID id);
+
+    Document findByDocumentNumber(UUID organizationId, String documentNumber);
+
+    Page<Document> findByOrganization(UUID organizationId, Pageable pageable);
 }

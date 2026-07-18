@@ -1,7 +1,7 @@
 package com.govos.doc.repository;
 
 import com.govos.doc.entity.StorageProvider;
-import com.govos.doc.entity.StorageProviderType;
+import com.govos.doc.enums.StorageProviderType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -14,11 +14,11 @@ public interface StorageProviderRepository extends JpaRepository<StorageProvider
 
     Optional<StorageProvider> findByIdAndDeletedFalse(UUID id);
 
-    Optional<StorageProvider> findByCodeAndDeletedFalse(String code);
+    Optional<StorageProvider> findByProviderNameAndDeletedFalse(String providerName);
 
-    List<StorageProvider> findByDeletedFalseOrderByCodeAsc();
+    List<StorageProvider> findByProviderTypeAndDeletedFalse(StorageProviderType providerType);
 
-    List<StorageProvider> findByProviderTypeAndDeletedFalseOrderByCodeAsc(StorageProviderType providerType);
+    List<StorageProvider> findByActiveTrueAndDeletedFalse();
 
-    boolean existsByCodeAndDeletedFalse(String code);
+    Optional<StorageProvider> findByIsDefaultTrueAndDeletedFalse();
 }

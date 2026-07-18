@@ -1,6 +1,9 @@
 package com.govos.doc.repository;
 
 import com.govos.doc.entity.DocumentVersion;
+import com.govos.doc.enums.DocumentVersionStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -13,9 +16,17 @@ public interface DocumentVersionRepository extends JpaRepository<DocumentVersion
 
     Optional<DocumentVersion> findByIdAndDeletedFalse(UUID id);
 
-    List<DocumentVersion> findByDocument_IdAndDeletedFalseOrderByVersionNumberDesc(UUID documentId);
+    List<DocumentVersion> findByDocument_IdAndDeletedFalse(UUID documentId);
 
-    Optional<DocumentVersion> findByDocument_IdAndVersionNumberAndDeletedFalse(UUID documentId, Integer versionNumber);
+    Page<DocumentVersion> findByDocument_IdAndDeletedFalse(UUID documentId, Pageable pageable);
 
-    boolean existsByDocument_IdAndVersionNumberAndDeletedFalse(UUID documentId, Integer versionNumber);
+    List<DocumentVersion> findByDocument_IdAndDeletedFalseOrderByVersionNumber_ValueDesc(UUID documentId);
+
+    Optional<DocumentVersion> findByChecksum_ValueAndDeletedFalse(String checksum);
+
+    Optional<DocumentVersion> findByStorageLocation_StorageObjectKeyAndDeletedFalse(String storageObjectKey);
+
+    List<DocumentVersion> findByVersionStatusAndDeletedFalse(DocumentVersionStatus versionStatus);
+
+    Optional<DocumentVersion> findTopByDocument_IdAndDeletedFalseOrderByVersionNumber_ValueDesc(UUID documentId);
 }

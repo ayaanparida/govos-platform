@@ -72,6 +72,124 @@ govos:
       max-per-user: 5
     lockout:
       max-attempts: 5
+  search:
+    host: ${GOVOS_SEARCH_HOST:localhost}
+    port: ${GOVOS_SEARCH_PORT:9200}
+    username: ${GOVOS_SEARCH_USERNAME:}
+    password: ${GOVOS_SEARCH_PASSWORD:}
+    ssl: ${GOVOS_SEARCH_SSL:false}
+    bulk-batch-size: 500
+    default-page-size: 20
+    max-page-size: 100
+    query-timeout-ms: 5000
+    semantic:
+      enabled: false
+      keyword-weight: 0.70
+      vector-weight: 0.30
+      provider: mock
+      top-k: 20
+      vector-store: memory
+      vector-index-name: govos-vector-index
+      embedding-version: 1
+      embedding-batch-size: 50
+      embedding-max-retries: 3
+      vector-dimension: 384
+      openai:
+        api-key: ${GOVOS_SEARCH_OPENAI_API_KEY:}
+        model: text-embedding-3-small
+        base-url: ${GOVOS_SEARCH_OPENAI_BASE_URL:https://api.openai.com/v1}
+        dimension: 1536
+      azure:
+        endpoint: ${GOVOS_SEARCH_AZURE_ENDPOINT:}
+        api-key: ${GOVOS_SEARCH_AZURE_API_KEY:}
+        deployment: ${GOVOS_SEARCH_AZURE_DEPLOYMENT:}
+        api-version: 2023-05-15
+        dimension: 1536
+      ollama:
+        base-url: ${GOVOS_SEARCH_OLLAMA_BASE_URL:http://localhost:11434}
+        model: nomic-embed-text
+        dimension: 768
+      embedding-cache:
+        enabled: true
+        ttl-seconds: 3600
+        max-entries: 5000
+    resilience:
+      max-retries: 3
+      initial-backoff-ms: 100
+      max-backoff-ms: 2000
+      backoff-multiplier: 2.0
+      operation-timeout-ms: 5000
+      graceful-degradation: true
+    cache:
+      enabled: true
+      ttl-seconds: 60
+      max-entries: 1000
+      warm-on-startup: false
+    pool:
+      max-connections: 50
+      max-connections-per-route: 20
+      connection-timeout-ms: 5000
+      socket-timeout-ms: 30000
+      compression: true
+    guard:
+      max-result-window: 10000
+      max-deep-pagination-offset: 10000
+    metrics:
+      enabled: true
+    scheduler:
+      enabled: true
+      reindex-cron: "0 0 2 * * *"
+      incremental-reindex-cron: "0 0 */6 * * *"
+      embedding-cron: "0 30 3 * * *"
+      cleanup-cron: "0 0 4 * * *"
+      health-cron: "0 */15 * * * *"
+      statistics-cron: "0 5 * * * *"
+      max-retries: 3
+      initial-backoff-ms: 1000
+      max-backoff-ms: 30000
+      backoff-multiplier: 2.0
+      query-history-retention-days: 90
+      history-max-entries: 500
+    observation:
+      enabled: true
+      exporter: otlp
+      otlp-endpoint: http://localhost:4317
+      sample-rate: 1.0
+      log-spans: false
+      log-events: false
+      trace-history-max-entries: 500
+  document:
+    storage:
+      provider: ${GOVOS_DOCUMENT_STORAGE_PROVIDER:local}
+      base-path: ${GOVOS_DOCUMENT_STORAGE_BASE_PATH:./data/doc-storage}
+      bucket: ${GOVOS_DOCUMENT_STORAGE_BUCKET:govos-documents}
+      region: ${GOVOS_DOCUMENT_STORAGE_REGION:us-east-1}
+      max-file-size: ${GOVOS_DOCUMENT_STORAGE_MAX_FILE_SIZE:5368709120}
+      multipart-threshold: ${GOVOS_DOCUMENT_STORAGE_MULTIPART_THRESHOLD:10485760}
+      signed-url-expiration-seconds: ${GOVOS_DOCUMENT_STORAGE_SIGNED_URL_EXPIRATION:300}
+      buffer-size: ${GOVOS_DOCUMENT_STORAGE_BUFFER_SIZE:8192}
+      metrics:
+        enabled: ${GOVOS_DOCUMENT_STORAGE_METRICS_ENABLED:true}
+      local:
+        base-path: ${GOVOS_DOCUMENT_STORAGE_LOCAL_BASE_PATH:./data/doc-storage}
+      minio:
+        endpoint: ${GOVOS_DOCUMENT_MINIO_ENDPOINT:http://localhost:9000}
+        access-key: ${GOVOS_DOCUMENT_MINIO_ACCESS_KEY:}
+        secret-key: ${GOVOS_DOCUMENT_MINIO_SECRET_KEY:}
+        bucket: ${GOVOS_DOCUMENT_MINIO_BUCKET:govos-documents}
+        secure: ${GOVOS_DOCUMENT_MINIO_SECURE:false}
+      s3:
+        region: ${GOVOS_DOCUMENT_S3_REGION:us-east-1}
+        access-key: ${GOVOS_DOCUMENT_S3_ACCESS_KEY:}
+        secret-key: ${GOVOS_DOCUMENT_S3_SECRET_KEY:}
+        bucket: ${GOVOS_DOCUMENT_S3_BUCKET:govos-documents}
+      azure:
+        connection-string: ${GOVOS_DOCUMENT_AZURE_CONNECTION_STRING:}
+        container: ${GOVOS_DOCUMENT_AZURE_CONTAINER:govos-documents}
+      google:
+        project-id: ${GOVOS_DOCUMENT_GCS_PROJECT_ID:}
+        credentials-file: ${GOVOS_DOCUMENT_GCS_CREDENTIALS_FILE:}
+        bucket: ${GOVOS_DOCUMENT_GCS_BUCKET:govos-documents}
 
 springdoc:
   api-docs:
